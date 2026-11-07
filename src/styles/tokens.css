@@ -1,0 +1,79 @@
+/*
+ * Design tokens — IBM Carbon White/Gray 10 shell + ISA-101 high-performance HMI rules.
+ * ~90% of pixels stay neutral. Color is reserved for ABNORMAL state and interaction.
+ * Every severity color is paired with a shape + number + word (redundant coding).
+ */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+  /* surfaces */
+  --bg: #f4f4f4;            /* Gray 10 — page */
+  --layer: #ffffff;         /* White — panels */
+  --layer-2: #f4f4f4;
+  --layer-hover: #e8e8e8;
+  --inverse: #161616;       /* Gray 100 — nav, active incident, 3D stage chrome */
+  --inverse-2: #262626;
+  --inverse-3: #393939;
+  --border: #e0e0e0;        /* Gray 20 */
+  --border-strong: #8d8d8d; /* Gray 50 */
+  --border-inverse: #393939;
+
+  /* text */
+  --text: #161616;
+  --text-2: #525252;
+  --text-3: #6f6f6f;
+  --text-disabled: #a8a8a8;
+  --text-inverse: #f4f4f4;
+  --text-inverse-2: #c6c6c6;
+
+  /* interaction */
+  --interactive: #0f62fe;   /* Blue 60 */
+  --interactive-hover: #0043ce;
+  --focus: #0f62fe;
+  --selected: #e0e0e0;
+
+  /* ISA-101 alarm priorities (Carbon status palette) */
+  --p1: #da1e28;  /* critical — red square "1" */
+  --p2: #ff832b;  /* warning  — orange triangle "2" */
+  --p3: #f1c21b;  /* advisory — yellow circle "3" */
+  --p1-bg: #fff1f1;
+  --p2-bg: #fff2e8;
+  --p3-bg: #fcf4d6;
+  --ok-text: #198038; /* used ONLY for a "verified/completed" word, never as a fill for normal */
+
+  /* data */
+  --water: #0f62fe;
+  --water-soft: rgba(15, 98, 254, 0.35);
+  --band: #e0e0e0;     /* normal band in analog indicators */
+  --band-likely: #8d8d8d;
+  --stale-hatch: repeating-linear-gradient(135deg, transparent 0 3px, rgba(141,141,141,.28) 3px 4px);
+
+  /* type */
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* spacing (Carbon 2x grid) */
+  --s1: 2px; --s2: 4px; --s3: 8px; --s4: 12px; --s5: 16px; --s6: 24px; --s7: 32px; --s8: 48px;
+
+  --ease: cubic-bezier(0.2, 0, 0.38, 0.9); /* Carbon productive */
+  --dur: 110ms;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 14px/20px var(--font);
+  letter-spacing: 0.16px;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.mono { font-family: var(--mono); font-feature-settings: 'zero' 1; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

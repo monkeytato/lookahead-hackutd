@@ -1,0 +1,151 @@
+/* 3D twin — Carbon light shell, ISA-101 labels. Tokens fall back to literal Carbon values. */
+.twin {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  overflow: hidden;
+  background: #f4f4f4;
+  font-family: var(--font, 'IBM Plex Sans', system-ui, sans-serif);
+  user-select: none;
+  touch-action: none;
+}
+.twin canvas { display: block; outline: none; }
+
+/* ---------------------------------------------------------- alarm markers */
+.twin-marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px 0 4px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #161616;
+  font: 500 11px/16px var(--font, 'IBM Plex Sans', sans-serif);
+  letter-spacing: 0.32px;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  transform: translate(-50%, calc(-100% - 14px));
+}
+.twin-marker::after { /* leader to the asset */
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 14px;
+  background: #8d8d8d;
+}
+.twin-marker:hover { border-color: #8d8d8d; }
+.twin-marker:focus-visible { outline: 2px solid #0f62fe; outline-offset: 1px; }
+.twin-marker.is-selected { border-color: #0f62fe; box-shadow: inset 0 0 0 1px #0f62fe; }
+.twin-marker.is-selected::after { background: #0f62fe; }
+.twin-marker--normal { padding-left: 8px; }
+.twin-glyph { flex: none; display: block; }
+.twin-marker__id { font-family: var(--mono, 'IBM Plex Mono', monospace); font-weight: 600; font-size: 11px; }
+.twin-marker__word { color: #525252; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.twin-marker__clock {
+  font-family: var(--mono, 'IBM Plex Mono', monospace);
+  font-feature-settings: 'tnum' 1;
+  color: #161616;
+  padding-left: 6px;
+  border-left: 1px solid #e0e0e0;
+}
+.twin-marker--critical .twin-marker__clock { color: #da1e28; }
+.twin-marker__stale {
+  color: #6f6f6f;
+  padding: 0 4px;
+  border: 1px dashed #a8a8a8;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+/* ----------------------------------------------------------------- people */
+.twin-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #262626;
+  color: #ffffff;
+  font: 600 10px/14px var(--font, 'IBM Plex Sans', sans-serif);
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  cursor: default;
+}
+.twin-person.is-stale {
+  background: #ffffff;
+  color: #6f6f6f;
+  border: 1px dashed #a8a8a8;
+}
+.twin-person__stale { font-weight: 400; color: #6f6f6f; }
+.twin-person__age { font-weight: 400; color: inherit; opacity: 0.85; padding-left: 4px; border-left: 1px solid currentColor; }
+
+/* ----------------------------------------------------------------- legend */
+.twin__legend {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  justify-content: flex-end;
+  max-width: calc(100% - 24px);
+  font: 400 11px/16px var(--font, 'IBM Plex Sans', sans-serif);
+  letter-spacing: 0.32px;
+  color: #6f6f6f;
+  pointer-events: none;
+}
+.twin__legend span { display: inline-flex; align-items: center; gap: 6px; }
+.twin__sw { display: inline-block; width: 12px; height: 8px; border: 1px solid transparent; }
+.twin__sw--water { background: linear-gradient(90deg, rgba(69, 137, 255, 0.25), rgba(15, 98, 254, 0.7)); }
+.twin__sw--heat { background: linear-gradient(90deg, #1192e8, #f4f4f4, #da1e28); border-color: #e0e0e0; }
+.twin__sw--stale { background: #c6c6c6; }
+.twin__sw--person { width: 8px; height: 8px; border-radius: 50%; border: 1px dashed #a8a8a8; background: #fff; }
+
+/* -------------------------------------------------------------- twin lab */
+.twin-demo { position: fixed; inset: 0; background: #f4f4f4; }
+.twin-demo__panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 300px;
+  max-width: calc(100% - 32px);
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  color: #161616;
+  font: 400 13px/18px var(--font, 'IBM Plex Sans', sans-serif);
+  letter-spacing: 0.16px;
+  display: grid;
+  gap: 14px;
+}
+.twin-demo__eyebrow { font-size: 11px; letter-spacing: 0.32px; color: #6f6f6f; text-transform: uppercase; }
+.twin-demo__title { font-size: 14px; font-weight: 600; }
+.twin-demo__slider { display: grid; gap: 6px; }
+.twin-demo__slider span { display: flex; justify-content: space-between; color: #525252; font-size: 12px; }
+.twin-demo__slider b { color: #161616; font-weight: 500; }
+.twin-demo__slider input { width: 100%; accent-color: #0f62fe; }
+.twin-demo__panel fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
+.twin-demo__panel legend { font-size: 12px; color: #525252; margin-bottom: 4px; padding: 0; }
+.twin-demo__check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.twin-demo__check input { accent-color: #161616; margin: 0; }
+.twin-demo__row { display: flex; align-items: center; gap: 12px; }
+.twin-demo__btn {
+  height: 32px; padding: 0 14px; border: 1px solid #8d8d8d; background: #ffffff; cursor: pointer;
+  font-size: 13px;
+}
+.twin-demo__btn:hover { background: #e8e8e8; }
+.twin-demo__sel { font-size: 12px; color: #525252; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --------------------------------------------------------- DOM overlay */
+.twin__overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.twin-anchor { position: absolute; left: 0; top: 0; width: max-content; pointer-events: none; will-change: transform; }
+.twin-anchor > * { pointer-events: auto; }
+.twin-person { transform: translate(-50%, calc(-100% - 2px)); }

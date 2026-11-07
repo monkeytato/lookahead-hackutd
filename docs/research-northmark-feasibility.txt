@@ -1,0 +1,1339 @@
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Northmark Data Center Outage Prevention:
+Research & Feasibility
+
+ Nov 7, 2026 · @Alex Huang
+
+Bottom line
+
+Verdict: build it, but pitch it as a time-to-impact and handoff tool, not as a crystal ball. A
+dashboard and a 3D twin that previews what happens next are feasible in the hackathon
+window. Predicting short-term trends and countdowns from a known fault is feasible too.
+Predicting exactly when a rare failure will happen is not, and one portable sensor cannot
+monitor every part of a data center.
+
+Your question              Answer                                In one line
+                           Partly
+Is it feasible to predict                                        Countdowns, short-horizon
+the future?                                                      trends and wear trends yes;
+                                                                 dated forecasts of rare events no;
+An intuitive               Yes                                   validated accuracy needs real
+                                                                 facility data
+dashboard?
+                                                                 The safest part of the plan; the
+A 3D model that            Yes, as a scenario preview            value is in grouping alerts,
+predicts?                                                        showing confidence and writing
+                           No, one node can sample               the handoff
+A sensor monitoring        selected machines
+each part?                                                       Layers labeled by fidelity; the
+                                                                 water flow is an approximation
+                                                                 and the heat slice is indicative
+
+                                                                 Survey or pinned mode with a live
+                                                                 demo; a fleet belongs on the
+                                                                 roadmap
+
+What the research says matters most
+
+     Power and people dominate. Power problems are the largest single cause of
+     impactful outages in the Uptime Institute data cited in the power section, and human
+     error and missed procedures contribute to most outages. Cooling is smaller but fast,
+     and water is rare but destructive when it reaches the wrong room.
+
+                                                                 Page 1 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+     Failures cascade through dependencies, with delays. The Google Paris, SK C&C
+     Pangyo and NaviSite cases all turned a local fault into a larger outage because a
+     downstream clock ran out before anyone acted. Modeling those links and their delays
+     is the most defensible form of prediction.
+     The Northmark prompt is about information, not only physics. Missed warnings and
+     unclear handoffs mean the winning feature is the right incident, with a clock and an
+     owner, in front of the right person.
+     Cheap vibration sensing is good enough for trends. Low-cost MEMS accelerometers
+     suit frequency and trend work and need calibration for absolute amplitude, so the
+     node tracks change against each machine's own baseline.
+     Whole-room prediction exists in research, not in a weekend. Learned airflow
+     surrogates and calibrated twins report small errors, but they needed large simulation
+     sets or real field data that this project does not have.
+
+What to do next
+
+  1. Ask Northmark at the workshop whether any data, sandbox or facility map exists.
+  2. Lock the scope to the must-have list in the build plan and confirm the sponsor track
+
+     count with an organizer.
+  3. Get the ESP32 and accelerometer wired and reading today; everything live depends
+
+     on it.
+  4. Write the dependency graph and the Paris replay first, because the clocks drive the
+
+     dashboard, the 3D model and the handoff note.
+  5. Freeze features at 9 AM, record the video by 11 AM and submit with an hour in hand.
+
+Where this fits in the Planning Doc
+
+The idea answers the Northmark Compute & Cloud track, "Keep the World Running," by
+turning facility physics into early warnings for night-shift teams. Everything below comes
+from the Planning Doc.
+
+Item           What the Planning Doc says
+
+Track          Northmark Compute & Cloud: Keep the World Running
+
+Prompt         Data center teams work around the clock. A missed warning, an unclear
+(paraphrased)  handoff, or wrong information at the wrong moment can turn a small
+               issue into a major outage. Build something that keeps them a step ahead.
+
+                                                                 Page 2 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Item              What the Planning Doc says
+Prizes
+Judging criteria  1st AirPods Max Gen 2, 2nd Apple Watch Series 12, 3rd Echo Show 11
+Deadlines
+Existing Idea 1   Innovation and creativity, technical complexity, completeness, design,
+                  impact, presentation
+Open question
+                  Devpost team registration 11:00 PM Saturday; final submission noon CST
+                  Sunday, no edits after; demo video 2 minutes max
+
+                  2D facility map with live equipment health and dependency analysis,
+                  NVIDIA Nemotron investigating incidents, a scenario engine that checks
+                  proposed actions, and a shared incident history for shift handoffs
+
+                  Devpost allows up to 3 sponsor tracks; the site says 2. Ask an organizer
+                  before submitting.
+
+How the new direction relates to Idea 1:
+
+     The 3D model upgrades the 2D map, the portable sensor becomes one more data
+     source, and the prediction engine is the scenario engine.
+     The prompt names handoffs and wrong information, not only physical faults. The
+     dashboard should carry shift handoff and incident history next to the 3D view (see
+     Dashboard design).
+     Saturday 4:00 PM to Sunday noon is about 20 hours. That limit drives the scope in the
+     feasibility and build-plan sections.
+
+Cooling and thermal
+
+Cooling causes roughly one in eight impactful outages (Computer Weekly on Uptime's
+2025 analysis), but it escalates faster than any other fault. When heat rejection stops,
+UPS-backed servers keep producing heat and the room warms within minutes.
+
+Factor            How it fails                                   Early signal          Pace
+Server inlet air
+                  Inlet temperature or                           Rack-top inlet        Minutes after a
+                  humidity leaves the                            temperature creeping  cooling loss
+                  allowed band; servers                          up; dew point rising
+                  throttle or trip
+
+                                                                                       Page 3 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Factor              How it fails                                 Early signal             Pace
+Chillers and heat   Compressor wear,                                                      Wear: weeks.
+rejection           refrigerant loss, fouled                     Higher approach          Trip: instant
+                    condensers, tower fan                        temperature, more
+Chilled-water       or pump faults                               power per ton of         Seconds to
+pumps and valves                                                 cooling, vibration on    minutes
+                    Pump failure, stuck                          compressors and
+Room air handlers   valve, air lock                              tower fans               Days to weeks
+(CRAH/CRAC)
+                    Fan failure, clogged                         Flow falling while       Slow drift, then
+Airflow layout      filters, fouled coils                        pump command holds       sudden when
+                                                                 steady; differential     load moves
+Liquid cooling      Hot-air recirculation,                       pressure shifting        Hidden until the
+(CDU, cold plates)  missing blanking                                                      loop runs out of
+                    panels and blocked                           Fan vibration at blade-  margin
+IT load             tiles create hot spots                       pass frequency;
+                    Clogged filter,                              narrower supply-to-      Seconds
+                    shrinking pump                               return temperature
+                    reserve, one branch                          difference
+                    starved, leak
+                                                                 One rack's inlet
+                    A GPU job ramps up                           running hotter than its
+                    and rack heat exceeds                        neighbours
+                    local cooling capacity
+                                                                 Pump running faster at
+                                                                 the same flow; rising
+                                                                 filter pressure drop;
+                                                                 one branch lagging its
+                                                                 peers
+
+                                                                 Rack power against
+                                                                 local cooling capacity
+
+Treat the early-signal and pace columns as starting hypotheses: they combine the cited
+sources with standard engineering practice, and a facilities engineer should sanity-check
+them.
+
+Limits to hard-code. ASHRAE Class A1 puts recommended server-inlet air at 18 to 27 °C
+and allowable at 15 to 32 °C, with allowable humidity of 8 to 80% RH and a dew point no
+higher than 17 °C. Liquid-cooling supply-water classes run from W17 (17 °C) to W45 (45
+°C), with a 2 °C minimum (ASHRAE 5th edition reference card).
+
+                                                                                          Page 4 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+How long the room has. Ride-through depends on rack density and thermal mass, so
+compute it per room instead of hard-coding one number. A 2007 Opengate study found a
+data center at 5 kW per cabinet reached thermal shutdown within three minutes of a
+power outage (Data Center Knowledge). That figure predates today's densities, so model
+it from rack kW, room air volume and equipment thermal mass.
+
+Liquid cooling hides trouble. Controls open valves and raise pump speed to hold
+temperature, so chip temperatures can look normal while the loop's margin shrinks. Judge
+the loop by the effort needed to hold temperature: flow per branch, differential pressure,
+pump command and filter pressure drop (Electronic Design).
+
+Forecasting precedent. Google trained neural networks on historical sensor data to
+forecast data center temperature and pressure one hour ahead, and cut cooling energy
+by 40% in testing (ACHR News). That is control optimization, not failure prediction, but it
+shows a one-hour thermal forecast is a proven pattern.
+
+Water, leaks and flooding
+
+A leak is rarely the outage by itself. The damage comes from where the water travels next,
+often into rooms nobody is watching.
+
+Case: Google's Paris region, April 2023. A cooling-system pipe began leaking on Level 2 at
+16:46 Pacific. Engineers were alerted to the flooded, burning battery room at 20:08, which
+is 3 hours 22 minutes later, and the building's fire-suppression water ran out at 22:45. The
+leak started in a part of the building Google did not operate, entered a UPS room and
+caused a fire; the whole building was powered down for several hours (Google Cloud
+incident report).
+
+The lesson for this project is the gap between leak and awareness, and not knowing what
+the water could reach. That gap is what a portable sensor plus a spread model targets.
+
+Leak source                                                      Why it matters
+Chilled water, glycol and immersion
+coolant                                                          Leaks at cooling units, heat exchangers and
+                                                                 connectors; glycol and non-conductive fluids
+Condensate and drain lines                                       can be corrosive
+Plumbing above or beside the hall
+                                                                 Blocked drains back up and flood locally
+
+                                                                 Poorly fitted joints fail more often; wet rooms
+                                                                 should not sit near data halls
+
+                                                                 Page 5 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Leak source                                                      Why it matters
+Roof, gutters and rain
+Fire protection                                                  Rainwater enters through poor design,
+Fuel, oil and cleaning chemicals                                 blockages or flooding
+
+                                                                 Sprinkler and suppression tanks and pipes can
+                                                                 leak, especially after freezing or impact damage
+
+                                                                 Generator diesel and lubricants leak; spills
+                                                                 damage equipment
+
+Source for the table: Aviva risk guidance on escape of water in data centres. The same
+guidance warns that in multi-storey buildings, leaks from above, below or next door can
+follow hidden "sneak paths" before they become visible.
+
+Water does not follow a predictable path. Watts argues that water can spread well
+beyond the leak's origin, so the priority is isolating the affected loop to limit the radius of
+failure, using preprogrammed logic based on water volume, release rate and equipment at
+risk (Watts). The model should therefore show a range of likely spread, not one confident
+path.
+
+What to model for water
+
+     Cooling-loop flow. A pipe network with a flow rate and pressure at each segment, so a
+     supply-versus-return mismatch or a pressure drop points to a leak zone. This is a
+     standard mass-balance approach, not taken from a cited source.
+     Floor spread. A 2D shallow-water solver over a floor-plan elevation grid that includes
+     raised-floor voids, door thresholds, drains and equipment plinths. A published flood
+     digital twin uses a GPU-accelerated 2D shallow-water solver, ingests water-level
+     sensor data and reports cutting run time "from several hours to minutes" (Chuai-Aree,
+     2026).
+     What sits downstream. Link each wet zone to the equipment it would take out, such
+     as the Paris UPS room. This reuses the dependency map in the cascade section.
+     Sensors. Match the leak sensor to the fluid, and add distributed sensing along pipe
+     runs as well as point sensors at units.
+
+                                                                 Page 6 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Power and electrical
+
+Power is the leading cause of impactful outages: 45% in Uptime's 2026 data, down from
+54% in its 2025 report but still far ahead of any other category (Network World, Computer
+Weekly). Failures concentrate in the chain from the utility to the rack, so the sensors and
+the dependency map should follow that chain.
+
+Link in the chain  How it fails                                  Early signal               Pace
+Utility feed                                                                                Instant
+                   Sag, surge or loss of                         Voltage and frequency
+Transfer           supply                                        deviations                 Silent until the
+switches                                                                                    day it is needed
+(ATS/STS)          Fail to transfer; surge-                      Failed test transfers;
+Generators         damaged relays;                               relay or controller fault  Silent until a
+                   disrupted control logic                       codes                      start is
+UPS and                                                                                     demanded
+batteries          Fail to start or to carry                     Start-test results, fuel   Autonomy is
+                   load                                          level, starter-battery     minutes
+PDUs, breakers,                                                  health
+busways            Module failure, aged                                                     Gradual, then
+Single-corded      batteries, lithium-ion                        Battery temperature        sudden
+equipment          thermal runaway                               and voltage spread, gas    Instant at failure
+                                                                 or smoke detection,
+                   Overload, loose or hot                        autonomy remaining
+                   connections
+                   One path feeds a device                       Load against rating,
+                   that should have two                          connection temperature
+
+                                                                 Rack power-path audit
+
+The signal and pace columns combine the cited incidents with standard practice, so
+confirm them with an electrical engineer.
+
+Uptime's 2025 data shows which links in the chain fail most often.
+
+                                                                                            Page 7 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+  Uptime Institute 2025 outage analysis, as reproduced by GIX Tools (gixtools.net/?p=20122359); % of
+  respondents
+
+  Case: a transfer switch that never told the generators to start. At NaviSite's Silicon
+  Valley data center, a grid surge damaged relays in the transfer switches, so the generators
+  received no start signal when utility power dropped at 4:20 a.m. The UPS carried the load
+  until its batteries drained at 4:56 a.m., then the whole facility went dark for about 40
+  minutes until an electrician started the generators by hand; some customers took up to 24
+  hours to recover (DatacenterDynamics). The only clock that mattered was UPS autonomy,
+  36 minutes, and nobody was told it was running down. A dashboard countdown for "UPS
+  minutes left" and "generator start acknowledged" targets exactly this.
+  Lithium-ion batteries are the fire risk. Uptime's 2021 survey found nearly half of
+  operators had adopted lithium-ion for centralized UPS plants, up from about a quarter
+  three years earlier (Uptime Institute Journal). Three fires show the pattern:
+
+       SK C&C Pangyo, Korea, October 2022. The batteries were not physically separated
+       from the UPS and resisted gas-based extinguishers, which heated the UPS and forced
+       a power cutoff (Korea Herald).
+       Daejeon national data center, September 2025. A technician disconnected a UPS
+       battery module to move it, one cell exploded and thermal runaway spread across the
+       rack. The modules dated from 2014, more than a year past their 10-year service life;
+       the fire burned about 22 hours and 647 government systems went offline (ESS News).
+       OVHcloud Strasbourg, 2021. The fire affected some 65,000 customers, and many lost
+       data (Uptime Institute Journal).
+
+                                                                                                                                                                                                                                                    Page 8 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Two lessons feed the design. Uptime says gas suppression can slow a fire in the early
+stage of cell failure but is arguably less suitable for a major thermal-runaway event, so
+early detection matters most. And two of the three incidents involved battery age or
+battery handling, so the dashboard should show asset age and any maintenance work
+under way near the battery room.
+
+Vibration, mechanical wear and structure
+
+Vibration is the earliest practical warning for rotating equipment, which in a data center
+means chilled-water and CDU pumps, CRAH and cooling-tower fans, chiller compressors
+and diesel generators. Standards turn one number, broadband RMS velocity measured on
+bearing housings between 10 and 1000 Hz, into four severity zones.
+
+Zone Meaning                                                     Class II: 15 to 75 kW  Class III: above 75 kW,
+                                                                 pumps and fans (mm/s   rigid base (mm/s RMS)
+A  New machine                                                   RMS)
+                                                                 under 1.12             under 1.8
+B  Acceptable for long-term                                      1.12 to 2.8            1.8 to 4.5
+
+   running                                                       2.8 to 7.1             4.5 to 11.2
+
+C  Unsatisfactory for continuous                                 over 7.1               over 11.2
+
+   running; plan maintenance
+
+D  Severe enough to damage the
+
+   machine; act now
+
+These are the ISO 10816-1 default boundaries, which ISO 20816-1 superseded (Vibromera;
+zone meanings from TEEPTRAK). Use them as demo defaults; a manufacturer's own limits
+can be stricter.
+
+Trend beats absolute value. One maintenance-route guide puts it plainly: rate of change
+is often a more useful indicator than the absolute number. A 5 mm/s reading in Zone B is
+safe unless the machine read 1.5 mm/s six months earlier. Compare each reading with the
+previous visit and the as-new baseline, flag a worsening of more than 20% against the last
+visit, and record operating load every time, because amplitude changes with load
+(Oxmaint). A portable sensor must therefore log which asset, which spot and what load,
+or its readings cannot be compared.
+
+                                                                                        Page 9 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+What the spectrum says. Standard diagnostic rules map frequency peaks to faults
+(TEEPTRAK):
+
+     1× shaft speed: imbalance, the most common defect.
+     2× shaft speed: misalignment, looseness or shaft cracks.
+     Blade-pass frequency (blade count × shaft speed): impeller or fan-blade wear, or
+     disturbed flow.
+     Sidebands around main peaks: non-linear faults such as cracks or severe wear.
+     Bearing defect frequencies: calculated from the bearing geometry.
+
+These rules need shaft speed, which for variable-speed drives has to come from the drive
+or a tachometer.
+
+Structure and building. Raised-floor loading, rack anchoring, seismic bracing and nearby
+construction also matter for vibration and physical integrity. This research did not go deep
+on them, and they are low priority for the demo.
+
+The next questions are which fault frequencies a cheap sensor can actually resolve and
+where training data comes from; the sensor and data sections cover both.
+
+Fire, air quality, environment and physical security
+
+Fire is rare but the most destructive failure, and in current data centers it is mostly a
+battery story. The table lists the other physical factors that can trip a facility; the first row
+ties back to the lithium-ion incidents in the power section.
+
+Factor            Why it matters                                 Early signal
+Battery thermal                                                  Battery temperature, off-
+runaway           Once cells overheat, fire spreads              gassing, smoke; asset age
+                  between cells and racks and is                 beyond service life
+Fire suppression  hard to stop; gas suppression
+supply            only slows early-stage failure                 Tank level, pump status, valve
+                  (Uptime Institute Journal)                     position
+
+                  In Paris the building's
+                  suppression water ran out about
+                  six hours after the leak began,
+                  and firefighters had to connect
+                  the battery room to city supply
+                  (Google Cloud incident report)
+
+                                                                 Page 10 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Factor            Why it matters                                 Early signal
+Humidity                                                         Relative humidity and dew point
+Contamination     Too much drives condensation                   at the server inlet
+                  and corrosion; too little raises
+Weather and site  electrostatic-discharge risk                   Particle counts, corrosion
+Fuel and oils     (Aviva)                                        coupons
+Physical access
+                  ASHRAE tracks particulate and                  Weather feed linked to roof and
+                  gaseous contamination at the                   drain sensors, ambient
+                  inlet as part of the thermal                   temperature against cooling
+                  guidelines (this research did not              capacity
+                  go deeper)                                     Fuel-level drop, bund leak
+                                                                 sensors
+                  Heavy rain, roof drainage, grid
+                  stress and extreme heat load the               Door status, who is working
+                  building and the cooling plant                 where
+
+                  Generator diesel and lubricants
+                  can leak or ignite; the guidance is
+                  to store them in bunded areas
+                  (Aviva)
+
+                  Doors, cages and maintenance
+                  work can open paths to people
+                  and water
+
+Physical security and cyber threats are real outage causes but sit outside this project's
+sensing story, so they are not modeled here. The last row matters for one reason:
+maintenance and handling are when several of the worst incidents began, so "who is
+working where" belongs on the dashboard.
+
+Network, software, human handoff and process
+
+This is the section the Northmark prompt points at. Physical faults become outages when
+people miss a warning, follow the wrong procedure or work from stale information.
+
+In Uptime's 2026 resiliency survey, the most common causes of IT service outages were
+networking and connectivity (23%), power (21%) and IT systems and software (18%)
+(Network World). Human error is close to universal: 92% of operators said it contributed
+at least a little to significant outages in the past three years, and 62% called it a major or
+moderate contributor (31% each).
+
+                                                                 Page 11 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+  Costs and structure. Of operators surveyed, 57% put their last major outage above
+  $100,000, and for the second year 1 in 5 reported more than $1 million. Third-party
+  providers (cloud, telecom, colocation) account for about two-thirds of publicly reported
+  outages (ITWeb on Uptime's report). Uptime also finds that failing to follow established
+  procedures is still the leading driver of human-error outages, with unclear or inconsistent
+  processes also common.
+  The chart below shows what operators named behind major human-error outages in
+  Uptime's 2025 report, as reproduced by GIX Tools. For network outages in the same
+  report, configuration and change-management failure was the top cause, at 50%.
+
+  Uptime Institute 2025 outage analysis, as reproduced by GIX Tools (gixtools.net/?p=20122359); % naming each
+  cause
+
+  What this means for the product
+       Shift handoff. Generate a structured handoff from live data: open alarms, active
+       maintenance, running countdown clocks, decisions taken and what to watch. This
+       answers the prompt's "unclear handoff."
+       Procedure adherence. The two biggest human-error drivers are not following a
+       procedure and following a wrong one. Pair each alert with the runbook step and log
+       which steps were done.
+       Right information, right time. Show data freshness and confidence on every reading,
+       so a stale sensor cannot masquerade as a calm room.
+       Change awareness. Put recent changes and maintenance next to each anomaly, since
+       change management drives network failures and maintenance preceded several fires.
+       Check before acting. Before an operator moves workloads or shuts equipment down,
+       show the downstream impact. This carries over the scenario engine from Idea 1.
+
+                                                                                                                                                                                                                                                  Page 12 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Cascading failures and dependency modeling
+
+A cascade is a chain of dependencies in which each failure starts a countdown for the
+next link. In all three incidents below the sites had plenty of equipment, yet one link failed
+silently and the next link's clock ran down.
+
+Incident             Chain of events                             The clock that mattered
+Google Paris, April
+2023                 Cooling pipe leaks in a part of the         3 h 22 min from first leak to
+                     building Google did not operate,            engineers hearing of the
+SK C&C Pangyo,       water enters a UPS room, fire               battery room; suppression
+October 2022         breaks out, the whole building is           water ran out about 6 hours
+                     powered down (Google Cloud)                 after the leak began
+NaviSite, Silicon
+Valley               Lithium-ion fire in a basement              Recovery was slow because
+                     battery room, gas extinguishers fail        batteries sat next to the UPS
+                     to contain it, the UPS heats and            and services were
+                     power is cut; Kakao's core services         concentrated in one place
+                     all depended on this one site (Korea
+                     Herald)                                     36 minutes of UPS before
+                                                                 blackout; about 40 minutes of
+                     Grid surge damages transfer-switch          total downtime
+                     relays, generators get no start
+                     signal, UPS drains, facility goes dark
+                     (DatacenterDynamics)
+
+The modeling idea. This is the design proposed here, not a cited method. Represent the
+facility as a directed graph. Nodes are utility feeds, transfer switches, generators, UPS
+strings, PDUs, chillers, pumps, CRAH and CDU units, racks and the services on them.
+Edges mean "powers," "cools" or "shares a space or pipe with."
+
+Each edge carries a delay: how long the downstream node survives once the upstream
+node is lost. Walking the graph from a fault gives a time-to-impact for every downstream
+node. That number is the countdown on the dashboard and the answer to "how long
+before it gets worse."
+
+                                                                 Page 13 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+  dependency graph · power and cooling paths, 9 node types, 4 clocks
+
+  Walk the graph from any fault: each blue clock says how long the next link survives, and
+  the dashed line marks a shared-fate link such as the Paris leak.
+  Delays to estimate
+
+       UPS autonomy: from current load and battery state, in minutes.
+       Thermal ride-through: from rack power, room air volume and equipment thermal
+       mass.
+       Water arrival: from the floor-spread model, per room.
+       Shared-fate links: rooms, pipe runs and floors that share a fate, as in Paris, plus the
+       map of which services sit in which site, as in Pangyo.
+  Show each delay as a range with a confidence label. A countdown that claims false
+  precision will lose operators' trust the first time it is wrong.
+
+ The portable sensor: what it can and cannot see
+
+  One battery-powered node cannot watch every part of a data center at once. What it can
+  do is the job a technician with a handheld analyzer does, only faster and with the readings
+  landing straight in the twin. The honest design has two modes: survey mode, where
+  someone carries the node to a fixed measurement point on a fan, pump, CRAH or
+  generator and takes a short reading, and pinned mode, where the node stays on one
+
+                                                                                                                                                                                                                                                  Page 14 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+machine and streams. Industry practice already splits this way: permanent sensors go on
+the critical machines and route-based collection covers the rest, so the pitch is a familiar
+workflow with a better brain behind it.
+
+What the node measures
+
+Channel         Part                                             What it tells the twin    Failure it feeds
+Vibration, 3    ADXL355 digital
+axes            MEMS                                             Overall level, 1× and 2×  Fan, pump and CRAH
+                accelerometer                                    running speed,            wear; loose mounts;
+Temperature                                                      bearing and blade-        resonance near racks
+and humidity    Any small I2C sensor                             pass bands
+                                                                                           Hot spots,
+Leak contact    Rope or pad probe on                             Local air condition at    condensation risk
+Device context  an ADC pin                                       the point of              against the dew-point
+                Timestamp, point ID,                             measurement               limit
+                operator, machine
+                load                                             Water present or          Water-path events like
+                                                                 absent at a low point     the Paris leak
+
+                                                                 Lets a reading be         Handoff gaps: the
+                                                                 compared with the         wrong number in the
+                                                                 right baseline            wrong place
+
+The last row matters most for Northmark's framing. A reading with no point ID, no load and
+no time is the kind of "wrong information at the wrong time" the prompt is about, so the
+node tags every sample before it leaves the device.
+
+Why a cheap MEMS sensor is good enough here
+
+The ADXL355 is a 20-bit digital accelerometer with SPI and I2C and a noise density of 22.5
+µg/Hz, drawing about 200 µA in measurement mode, and Analog lists condition
+monitoring among its target uses. A recent conference study of low-cost MEMS parts
+found them suitable for frequency-based condition monitoring but in need of calibration
+for accurate amplitude, and another group found that a MEMS system calibrated once
+against a higher-accuracy sensor can stand in for piezoelectric ones on electric motors.
+That fits this project: the twin cares about change over time and about which frequency is
+rising, not about lab-grade absolute values.
+
+Three limits to state out loud in the demo and the write-up:
+
+                                                                                           Page 15 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+       Bandwidth. Piezoelectric sensors remain the dominant choice above roughly 10 to 20
+       kHz. The node is aimed at the band where ISO severity is defined, 10 to 1000 Hz overall
+       velocity, so early bearing defects that only show at very high frequency are out of
+       reach.
+       Drift. A MEMS part can suffer both zero-output and sensitivity drift over time, where
+       piezoelectric sensors only drift in sensitivity. The fix is cheap: re-baseline on every
+       visit and trend against that machine's own history.
+       Unit-to-unit spread. A study that calibrated 25 low-cost MEMS accelerometers found
+       their variability changes the accuracy of the diagnostic features. Using one node for
+       all machines in the demo avoids the issue; a fleet would need per-unit calibration.
+
+ Measurement discipline the software enforces
+
+  Most of the value in vibration monitoring comes from process, which is why it suits a
+  software-heavy team:
+
+       Fixed points. The same checklist insists on permanent measurement studs because a
+       magnetic base is not repeatable enough for trending. The app should require a point
+       ID and show a photo of where to place the node.
+       Baseline first. Without a baseline you cannot say what normal looks like for that asset,
+       so the first visit only records.
+       Two alert levels. Practitioners set alert thresholds 10 to 20 percent below the ISO
+       alarm limit. The twin uses the ISO zone as the alarm and the machine's own trend as
+       the early warning.
+       Log the load. A pump at 40 percent flow and at 90 percent flow are different
+       machines. The node asks for, or reads, load at the time of measurement.
+
+ Data path
+
+  The node (an ESP32 with Wi-Fi) captures a short window, computes RMS velocity, the 1×
+  and 2× amplitudes and a coarse spectrum on-device, and posts a small JSON packet plus
+  the raw window to the backend. Doing the feature step on the device keeps the stream
+  light enough for hackathon Wi-Fi, and keeping the raw window means the team can re-run
+  better analysis later. Confirm the sensor's configurable output rate and filter settings in
+  the datasheet before fixing the sampling plan; this document does not assume a specific
+  rate.
+
+                                                                                                                                                                                                                                                  Page 16 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+What to show at demo time
+
+Use one real machine you can safely disturb, such as a small desk fan or a computer-case
+fan on a stand. Take a baseline, add a small piece of tape to a blade to create imbalance,
+and let the audience watch the 1× peak rise, the machine's health score drop and the
+twin's time-to-impact clock start. Then pair it with simulated and replayed data for the
+rest of the facility, and say plainly which parts are live and which are replayed. That
+honesty fits the "digital twins need independent validation" caveat in the next section and
+is easier to defend in front of judges than a claim that one sensor covers a whole building.
+
+Data and prediction methods: what "predict the future" can
+honestly mean
+
+"Predict the future" bundles four different jobs with very different odds of success.
+Splitting them is the most important thing this document can do for the pitch, because
+judges will probe the claim.
+
+Job                  Example                                     How hard            What the evidence
+                                                                                     says
+Countdown from a     Utility lost, battery                       Easy, mostly
+known fault          has N minutes;                              arithmetic on a     Physics and
+                     chiller down, inlet                         dependency graph    equipment ratings, no
+Short-horizon        reaches limit in M                                              learning needed
+forecast of a        minutes                                     Moderate, needs
+continuous signal                                                history             Google trained neural
+                     Rack inlet                                                      networks on
+                     temperature or loop                                             thousands of sensors'
+                     pressure over the                                               history and had them
+                     next hour                                                       predict temperature
+                                                                                     and pressure over the
+Wear trend and       Bearing vibration                           Hard in the field,  next hour
+remaining life of a  climbing over weeks                         doable on public
+part                                                             data                Run-to-failure
+                                                                                     datasets exist, but real
+                                                                                     machines vary
+
+                                                                                     Page 17 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Job            Example                                           How hard            What the evidence
+                                                                                     says
+Rare discrete  A battery thermal                                 Not predictable as
+events         runaway, a pipe                                   a date              Detect early, model
+               burst, a bad change                                                   the consequences,
+                                                                                     and rehearse the
+                                                                                     response
+
+The verdict later in this document leans on this table: the first two rows are feasible in a
+weekend, the third is feasible as a demo on borrowed data, and the fourth is a detection-
+and-consequence problem, not a forecasting one.
+
+Evidence that fast prediction of a whole room is real
+
+Two recent papers show that learned surrogates can stand in for slow airflow simulation:
+
+     A physics-informed surrogate trained on CFD runs reported a median absolute
+     temperature error of 0.18 °C against the full simulation, built on NVIDIA's
+     PhysicsNeMo with a digital twin in Omniverse.
+     A vision-style surrogate that treats the room as a 3D voxel grid of server loads, fan
+     speeds and set points reports up to 20,000 times faster results than CFD, hundreds
+     of milliseconds instead of hours.
+
+Two cautions apply. Both surrogates learn from CFD output, so they are only as good as
+the simulations that trained them; the HPE group generated their training data with a
+commercial tool, 6SigmaDCX. And Google's own write-up points out that each data center
+has a unique architecture and a model tuned for one may not transfer to another. For a
+hackathon this means the surrogate idea belongs in the roadmap and the pitch, not in the
+20-hour build.
+
+The data problem, and how to get around it
+
+Northmark has published no data, so the build needs three sources:
+
+  1. Simulated facility data. A small model of the room produces temperatures, flows,
+     power and alarms with known ground truth, and the same generator can inject faults
+     on a schedule. This is the same trick the NTU/NVIDIA work uses, generating training
+     data from high-fidelity simulation, at toy scale.
+
+  2. Replayed incident timelines. The Google Paris sequence in the cascade section is a
+     ready-made script with real timestamps: leak, then a battery-room alert three hours
+     and twenty-two minutes later, then suppression water. Replaying it shows exactly the
+
+                                                                                     Page 18 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+       late-warning gap Northmark describes.
+    3. Public bearing data for the wear trend. There are several well-known sets, listed in a
+
+       community catalog of bearing datasets. The NASA IMS set is useful because it
+       records a natural defect history over 30 days at constant speed instead of an artificial
+       scratch, and the XJTU-SY set holds complete run-to-failure vibration for 15 bearings
+       under three operating conditions. Both are bearings on test rigs, not data center fans,
+       so treat results as a proof of method.
+  The team's own sensor adds a fourth stream, small but real, and the only one a judge can
+  watch change in front of them.
+
+ Recommended stack for the build
+
+  Keep the models light enough to explain in one sentence each:
+       Dependency graph with delays for time-to-impact. Run it as a Monte Carlo over the
+       delay ranges (battery runtime, thermal ride-through, water arrival) to show a range,
+       not a single false-precision number.
+       Simple thermal model for the room: a lumped model of heat in, cooling out and
+       thermal mass, calibrated against the simulated data. It forecasts inlet temperature
+       minutes ahead and can be checked against the ASHRAE recommended range.
+       Trend and change detection on each machine's vibration features: a rolling baseline,
+       an exponentially weighted average and a CUSUM-style alarm, plus a straight-line or
+       exponential extrapolation to the alarm zone with a confidence band.
+       An anomaly score (an isolation forest or similar) over the multi-sensor feature set for
+       "something looks off" cases that no rule covers.
+       An LLM for explanation only. NVIDIA Nemotron turns the evidence into a handoff
+       note and answers "why" questions. It does not produce the numbers.
+
+ How to validate the predictions
+
+  The fastest way to lose credibility is to show a prediction with no test. Three checks fit in
+  the time available:
+
+       Backtest the wear trend on one public bearing run: report how many hours of
+       warning the alarm gave before failure and how many false alarms it raised earlier.
+       Score the thermal forecast against held-out simulated runs and report the error in
+       degrees.
+
+                                                                                                                                                                                                                                                  Page 19 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+     Rehearse the Paris replay and report how much earlier the twin would have flagged
+     the battery room than the three-hour gap in the real event, stating that this is a replay
+     and not a field result.
+
+A short table of those three numbers on one slide does more for the technical-complexity
+score than any amount of model detail.
+
+The 3D model: a layered digital twin, with water flow as the
+headline layer
+
+The 3D model should be built as a stack of layers, each with an honest fidelity label,
+instead of one simulation that claims to do everything. The NTU/NVIDIA group describes a
+five-tier digital twin: geometric, descriptive, predictive, prescriptive and automation. A
+weekend build can cover the first three tiers and a slice of the fourth, which is where the
+"predict the future" claim lives.
+
+Layer       What the viewer sees                                 How it is computed        Fidelity label
+Geometry                                                                                   Schematic
+State       Rooms, rack rows, UPS                                Hand-authored from the
+Prediction  and battery room, CRAH                               2D map in the Planning    Measured or
+            units, pipes, doors                                  Doc                       simulated
+Water                                                                                      Scenario preview
+Heat        Each object colored by                               Live or replayed sensor   with ranges
+            health, temperature or                               data mapped onto
+            load                                                 objects                   Approximation
+
+            A time slider from now to                            Cascade engine plus       Indicative, not CFD
+            +60 minutes; objects shift                           thermal model run
+            toward amber and red as                              forward
+            clocks run out
+                                                                 Grid-based flow model on
+            A wet front spreading                                the floor plan
+            across the floor and
+            reaching equipment                                   Interpolated from the
+                                                                 lumped thermal model
+            A translucent                                        and sensors
+            temperature slice through
+            the cold aisle
+
+                                                                                           Page 20 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+ Water flow: three levels of fidelity
+
+  Water is the layer that makes the demo memorable, and it is also the one where the
+  physics is easiest to fake badly. Three levels are available, and the build should pick the
+  middle one and say so.
+
+    1. Rule-based path. A leak at point A reaches room B after T minutes because of a
+       known drain, tray or door, and the dependency graph records the delay. This is exact
+       only as far as the facility map is correct, and it is what drives the time-to-impact clock.
+
+    2. Height-field diffusion on a grid. Each cell passes water to lower neighbors, with a cap
+       on how much can leave per step. One browser project simulates a 100 by 100 grid at 60
+       frames per second on the GPU, approximating the shallow water equations with
+       height-based diffusion. That is the right size for a data hall floor plan, runs on any
+       recent laptop, and looks convincing. It is a visual approximation, not a flood forecast.
+
+    3. Real shallow-water solver. WebFlood solves the shallow-water equations semi-
+       Lagrangian on the GPU in the browser, and its author reports that it handles a classic
+       dam-break test and reproduces urban flooding in Iowa City from elevation data.
+       Celeris-WebGPU runs nonlinear shallow-water and Boussinesq equations in the
+       browser and needs a WebGPU browser such as Chrome 113 or later. Either is a stretch
+       goal, and both were built for open water and terrain, not for a raised floor with cable
+       trays, so expect adaptation work.
+
+  What the water layer feeds is more important than how it looks. When the wet front
+  touches a PDU row, a battery cabinet or a floor-level cable run, it should create an edge in
+  the dependency graph and start a clock, exactly as the Paris leak did when water reached
+  the battery room hours before anyone was alerted. The picture is the explanation; the
+  graph is the prediction.
+
+ Why the heat layer is indicative, not CFD
+
+  Real airflow prediction is the part the research literature has solved with heavy
+  machinery: surrogate models trained on thousands of CFD runs, as covered in the
+  previous section. A twin also only earns trust after calibration with field data. DCVerse's
+  calibrated twin of a real cooling plant reported a mean absolute percentage error of 1.86%
+  on total cooling plant power, and the open-source OpenDT project reports that online re-
+  calibration cut its error from 7.86% to 4.39%. Those numbers come from measured data
+  and months of tuning. This project has neither, so the heat slice should be drawn as
+  indicative and labeled that way. Nothing in the demo should be described as a validated
+  forecast.
+
+                                                                                                                                                                                                                                                  Page 21 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+ Rendering and performance
+
+  A 3D hall with a few hundred racks is well inside what a browser can draw, as long as
+  identical objects are batched. Instancing renders many objects that share one geometry
+  and material in a single draw call, and React Three Fiber's drei library wraps it. Per-
+  instance color is supported, so rack health colors are free, while other material properties
+  such as textures are shared. The practical plan:
+
+       Three.js with React Three Fiber for the scene; one instanced mesh for racks, one for
+       CRAH units, and simple meshes for pipes and walls.
+       Run the forward simulation in a Web Worker. Precompute frames for the selected
+       scenario (for example, one frame per 30 seconds out to one hour) and let the slider
+       scrub through them, so the UI stays smooth.
+       Keep a WebGL fallback. Test WebGPU on the actual demo laptop early; if it is
+       unavailable, the grid water model still works as a shader or as plain JavaScript on a
+       small grid.
+
+ Priorities for the 20-hour window
+
+       Must have: geometry, state coloring, the time slider driven by the cascade engine, and
+       the grid-based water layer on the floor plan.
+       Should have: the heat slice, click-to-inspect panels that show the evidence behind
+       each clock, and the Paris replay as a one-button scenario.
+       Stretch: a real shallow-water solver, a learned thermal surrogate, and any import of
+       real CAD or BIM geometry.
+
+ The dashboard: answer three questions in order
+
+  An intuitive dashboard for this problem is not a wall of gauges. Northmark's prompt is
+  about missed warnings, unclear handoffs and the wrong information arriving at the wrong
+  time, so the screen has to answer three questions, in this order, for whoever is on shift:
+
+    1. What is wrong, or about to be? One incident, not forty alerts.
+    2. How long do I have? A countdown with a range, and a plain statement of what the
+
+       estimate rests on.
+    3. What do I do, and who owns it? The next action, the owner, and what the last shift
+
+       already tried.
+
+                                                                                                                                                                                                                                                  Page 22 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Borrow from control-room design, not from analytics tools
+
+Industrial control rooms have spent decades on this exact problem, and their rules
+transfer well. The ISA-101 standard for operator screens is built around situational
+awareness, with a grayscale baseline and color reserved for abnormal conditions, and a
+"squint test": blur the screen and only the abnormal items should still stand out. One
+expert panel adds an important caution: the goal is getting the right information to the
+right person, and gray alone does not guarantee that. A practical guide for designers
+makes the same point about prediction, noting that a layout should help the operator
+foresee a pending problem, for instance with a trend graph rather than a bare current
+value.
+
+Four levels of screen
+
+The common four-level hierarchy (overview, area, equipment, diagnostic) maps cleanly
+onto this project:
+
+Level  Screen             What it shows                           Who uses it
+1      Facility overview                                          Whoever walks up to
+                          A strip of clocks for the top           the screen
+2      Hall view          incidents, a count of open items,
+3      Equipment          overall confidence and data             Operator planning a
+4      detail             freshness                               response
+       Incident and                                               Technician at the
+       handoff            The 3D twin with the time slider,       machine
+                          water layer and heat slice
+                                                                  On-call lead and next
+                          Vibration trend, spectrum,              shift
+                          temperature, last visit and baseline,
+                          linked dependencies
+
+                          The evidence trail, actions taken, the
+                          generated shift note and the
+                          incident history
+
+Keep everything within two or three clicks of the overview, a rule of thumb that
+AutomationDirect's layout guidance also recommends.
+
+                                                                                  Page 23 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+ Alert discipline is the real product
+
+  A predictive system that adds noise makes outages more likely, not less. Alarm-
+  management standards put numbers on the limit: EEMUA 191 treats about one alarm per
+  ten minutes per operator, six an hour, as a healthy steady state, and ISA-18.2 defines a
+  flood as ten or more alarms in ten minutes (this is a secondary summary of the two
+  standards, so check the originals before quoting them on a slide). The design rules that
+  follow:
+
+       Group by cause. Use the dependency graph to fold a chiller trip, its high inlet
+       temperatures and the resulting throttling alerts into one incident with one clock.
+       Every alert needs an action. If there is nothing for a person to do, it is a log entry, not
+       an alert.
+       Show a budget. A small meter of incidents raised this hour, against a target of a
+       handful, makes the discipline visible to judges.
+       Redundant coding. Pair every color with an icon and a word so the screen works for
+       color-blind users and for photos on a projector.
+
+ Features that speak directly to Northmark's prompt
+
+       Confidence and freshness on every number. A reading older than its expected
+       interval turns hatched and says "stale, last seen 14 minutes ago". This targets "wrong
+       information at the wrong time" head on.
+       Why panel. Click any clock and see the chain: the fault, the graph path, the delays and
+       the sensor evidence behind each one, plus the assumption most likely to be wrong.
+       Generated handoff note. At shift change the system drafts what is open, who owns
+       it, what was tried and when to look again. A human confirms it; the model never sends
+       it alone. This is where the Nemotron incident investigation from the Planning Doc
+       earns its place.
+       Scenario preview. "What if the second chiller trips as well?" reruns the cascade and
+       shows how the clocks move, which is the scenario engine from Idea 1.
+       Incident history. Past incidents and their handoffs stay searchable, so the next
+       person sees what happened last time the same pump misbehaved.
+
+ What to leave out
+
+  Skip decorative gauges, animated pipes and any chart that cannot be tied to a decision. A
+  small number of honest clocks and a clean handoff beat a dense screen that no judge can
+  read in two minutes. The screen must also work as a two-minute demo video with no
+
+                                                                                                                                                                                                                                                  Page 24 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+narration pauses, which argues for one scripted scenario, the Paris leak replay, that starts
+quiet, raises one incident, counts down and ends with a handoff note.
+
+Feasibility, component by component
+
+The ratings below assume the hackathon window (about 20 working hours), a team of up
+to four, a laptop demo and no access to real Northmark data. "Feasible" means a working
+demo a judge can touch, not production quality. The ratings are this document's judgment,
+built from the evidence in the earlier sections, and they are not a measured result.
+
+Component           Verdict                                      What it takes           Main risk
+                    Feasible
+Dependency graph                                                 A graph of 15 to 25     Delay numbers are
+and time-to-impact                                               nodes with delay        assumptions, so the
+clocks                                                           ranges, a Monte         UI must show ranges
+                                                                 Carlo loop, a few       and sources
+Four-level          Feasible                                     scenarios
+dashboard with why                                                                       Scope creep; polish
+panel                                                            A React front end,      eats the schedule
+                                                                 role-neutral screens,
+3D twin: geometry,  Feasible                                     one scripted            Layout work looks
+state, time slider                                               scenario                small and is not; keep
+                                                                                         the hall simple
+Water-flow layer    Feasible as an                               Three.js with
+                    approximation                                instanced racks,        Judges may read it as
+                                                                 worker-                 a validated flood
+Real shallow-water  Stretch                                      precomputed frames      forecast; label it
+solver
+                                                                 A 2D grid on the floor  Built for open water
+Portable sensor     Feasible with a                              plan feeding graph      and terrain, so
+node                hardware caveat                              edges                   adaptation costs real
+                                                                                         time
+                                                                 Adapt an open           Parts availability and
+                                                                 browser solver to a     wiring; order or
+                                                                 raised-floor layout     borrow early
+
+                                                                 ESP32, ADXL355
+                                                                 breakout, mounting,
+                                                                 a short firmware loop
+
+                                                                                         Page 25 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+Component             Verdict                                    What it takes           Main risk
+Vibration baseline,   Feasible
+trend and alarm                                                  Features on-device,     MEMS drift and
+                      Feasible on public                         rolling baseline,       amplitude accuracy;
+Remaining-life        data only                                  CUSUM-style alarm       trend per machine,
+estimate                                                                                 not absolute
+                      Feasible,                                  One run-to-failure
+Short-horizon         unvalidated                                bearing set, a          Does not carry over to
+thermal forecast                                                 backtest with lead      real data center fans
+                      Not feasible in the                        time                    without field data
+Learned CFD           window
+surrogate for room    Feasible                                   A lumped thermal        No real data, so
+airflow                                                          model fitted to         accuracy is a
+Incident explanation  Not feasible                               simulated data,         simulation claim
+and handoff note by                                              ranges on output
+LLM                   Not feasible                                                       Data and compute;
+                                                                 Thousands of CFD        keep as roadmap, cite
+A sensor on every     Not feasible                               runs, GPU training,     the published results
+part of the system                                               validation
+                                                                                         Access and rate
+Forecasting rare                                                 Prompted Nemotron       limits; keep a canned
+events (fire,                                                    via NVIDIA's hosted     fallback for the demo
+runaway, burst pipe)                                             API, evidence passed
+as a date                                                        in as structured        One node plus
+Validated accuracy                                               JSON                    replayed data is the
+claims                                                                                   honest scope
+                                                                 Needs a fleet, power,
+                                                                 per-unit calibration    Detect early and
+                                                                 and installation        model consequences
+                                                                                         instead
+                                                                 Not a prediction
+                                                                 problem                 Do not state one;
+                                                                                         report backtests and
+                                                                 Requires real facility  label replays
+                                                                 data and months of
+                                                                 calibration
+
+                                                                                         Page 26 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+ Straight answers to the three questions you asked
+
+  Can we predict the future of a data center? Partly, and the parts that are possible are
+  the ones that matter for this prompt. Countdowns from a known fault and short-horizon
+  trends on temperature and vibration are feasible. Exact timing of rare events is not, and a
+  model with no real facility data cannot claim validated accuracy. Published work shows
+  the larger ambition is real: predicting temperature and pressure an hour ahead has run in
+  a live Google data center, and learned airflow surrogates report errors near 0.18 °C. Those
+  results took real data and large simulations.
+  Can we build an intuitive dashboard and a 3D model that predicts? Yes. The dashboard
+  is the safest piece of the whole plan. The 3D model can honestly be a scenario preview: it
+  moves forward through clocks and a simple flow model and shows ranges, with each layer
+  labeled for its fidelity.
+  Can a sensor monitor each part of the system? No, not one sensor and not in 20 hours. A
+  portable vibration-and-temperature node can take trustworthy readings on selected
+  machines, in survey or pinned mode, and that is enough to prove the loop from
+  measurement to twin to clock. Covering a facility needs a fleet, calibration and an
+  installation plan, which belongs in the roadmap slide.
+
+ Why this scope still wins on the judging criteria
+
+  The HackUTD criteria are innovation, technical complexity, completeness, design, impact
+  and presentation. The plan scores on innovation through time-to-impact clocks and
+  handoff-aware incidents, which few prediction demos attempt; on technical complexity
+  through the cascade engine, the sensor pipeline and the 3D layers; on completeness
+  because every claimed feature works in the scripted demo; and on impact because the
+  cited outage statistics, with human error a contributor to most outages, line up with a tool
+  built around handoffs. The risk is completeness if the team chases the stretch items,
+  which is why the build plan below puts them last.
+
+ Hackathon build plan
+
+ Architecture in one picture
+
+  Data moves one way: the sensor node and a simulator feed an ingest service, the twin
+  engine turns readings into incidents and clocks, and a language model explains each
+  incident for the dashboard. Only the sensor node is live; everything else in the facility is
+  simulated or replayed, and the demo should say so.
+
+                                                                                                                                                                                                                                                  Page 27 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+build architecture · one live source, everything else simulated or computed
+
+Sponsor and track fit
+
+The project fits the Northmark Compute & Cloud track directly. The other tracks below
+are options that reuse the same build. The planning notes I read said both that a project
+may enter up to three sponsor tracks on Devpost and that the site lists two, so ask an
+organizer before relying on a third.
+
+Track                  Why it fits                               Cost to the build
+Northmark: Keep the                                              None, this is the project
+World Running          Core prompt: warnings, handoffs,
+HackUTD Best Hardware  staying a step ahead                      Needs the node to work
+                                                                 on stage
+Tiger Data             A real sensor node on a real              Use its database for the
+                       machine, live in the demo                 readings store
+MongoDB Atlas                                                    Use it for the incident
+                       Time-series readings from the             store
+NVIDIA Nemotron        sensor and simulator                      One API integration
+
+                       Incident history and handoff
+                       notes as documents
+
+                       Incident explanation and handoff
+                       drafting
+
+                                                                 Page 28 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+The hardware prize and the data-store prizes pull in different directions on effort, so pick
+the third entry after the build exists and see which integration is cleanest.
+
+Team split for up to four people
+
+     Hardware and firmware: the ESP32 and ADXL355 node, mounting, the on-device
+     features, the demo fan rig, a fallback recording of a good run.
+     Backend and twin engine: ingest, the readings store, the dependency graph with
+     Monte Carlo clocks, the thermal model, the scripted scenarios and the replay.
+     3D and water: the hall scene, instanced racks, state coloring, the grid water layer, the
+     time slider.
+     Dashboard, language model and pitch: the four screens, the why panel, the
+     Nemotron handoff note, the demo script, the video and the Devpost text.
+
+Schedule against the real deadlines
+
+Registration on Devpost closes at 11 PM Saturday and final submission is at noon Sunday,
+after which nothing can be edited. Treat 11 AM as the real deadline and leave an hour of
+margin.
+
+When (Sat to Sun,  Goal                                          Done when
+Central)
+Now to 6 PM        Scope locked, repo and Devpost                Everyone has an assigned slice
+                   draft created, scenario spec and              and a shared data contract
+6 to 10 PM         graph JSON written; if you can
+                   still make it, ask the Northmark              Each slice works alone on fake
+10 PM to 1 AM      workshop (4:20 PM, ECSW 1.365)                data
+                   about data and a sandbox
+                                                                 One end-to-end run, however
+                   Four parallel tracks: node reading            ugly
+                   and posting, ingest and store, hall
+                   scene with static state,
+                   dashboard shell
+
+                   First integration: sensor into store
+                   into twin into screen; clocks start
+                   from a scripted fault
+
+                                                                            Page 29 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+When (Sat to Sun,  Goal                                          Done when
+Central)                                                         Scenario plays start to finish
+1 to 6 AM          Rest in shifts; one person keeps
+                   the water layer and time slider               Feature freeze declared
+6 to 9 AM          moving
+                                                                 Video uploaded, text reviewed by
+9 to 11 AM         Why panel, handoff note, stale-               someone who did not write it
+                   data badges, scenario preview;
+11 AM to noon      freeze features at 9 AM                       Submission page shows as
+                                                                 submitted
+                   Record the demo video (two
+                   minutes maximum), rehearse the
+                   live version, finish the Devpost
+                   text
+
+                   Submit and verify; do not touch
+                   the code
+
+Two-minute demo script
+
+  1. 0:00 to 0:15 A quiet hall in grayscale and one line on the problem: small issues become
+     outages when warnings are missed and handoffs fail.
+
+  2. 0:15 to 0:40 The live sensor on a fan: take the baseline, add tape to a blade, watch the
+     1× peak rise and the machine's clock start.
+
+  3. 0:40 to 1:10 Replay the Paris leak: the water front spreads across the floor plan,
+     reaches the battery room and starts the countdown that the real operators did not
+     see for hours.
+
+  4. 1:10 to 1:30 Drag the time slider forward, then ask "what if the second pump also
+     trips?" and watch the clocks tighten.
+
+  5. 1:30 to 1:50 The generated handoff note: open item, owner, what was tried, when to
+     check again.
+
+  6. 1:50 to 2:00 One slide of what is live, what is simulated and the roadmap: more
+     sensors, a learned airflow surrogate, real facility data.
+
+Cut list, in order
+
+If time runs short, drop these in this order: the heat slice, the scenario preview, the
+second track, the real shallow-water solver, the third-party integrations beyond the store,
+the 3D polish. Never drop the live sensor reading, the clocks or the handoff note, because
+
+                                                                 Page 30 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+together they are the project.
+
+Risks, open questions and sources
+
+Risks and how to blunt them
+
+Risk                                                             Likelihood  Mitigation
+Scope grows past 20 hours                                        High
+                                                                             Feature freeze at 9 AM, the cut list
+Judges read simulated output as                                  Medium      above, one scripted scenario
+validated prediction
+                                                                             Fidelity label on every layer, a "live vs
+Venue Wi-Fi drops the sensor                                     Medium      simulated" slide, ranges instead of
+stream                                                                       single numbers
+
+Sensor parts or wiring slip                                      Medium      Run a phone hotspot or local router,
+                                                                             add a local-only mode, keep a
+MEMS drift or noise makes the                                    Medium      recorded good run
+demo jumpy
+                                                                             Order or borrow today; test the
+WebGPU is missing on the demo                                    Low to      accelerometer on a breadboard
+laptop                                                           medium      before any enclosure work
+
+Hosted language model is slow or                                 Medium      Re-baseline right before the demo,
+unavailable                                                                  trend against that machine, use a
+                                                                             large obvious disturbance
+Sponsor track limit is two, not three Medium
+                                                                             Test early; the grid water layer works
+Delay numbers in the graph look                                  Medium      without it
+arbitrary
+                                                                             Canned fallback note for the
+                                                                             scripted scenario, evidence still
+                                                                             shown
+
+                                                                             Confirm with an organizer; pick
+                                                                             tracks after the build is real
+
+                                                                             Source each delay (equipment rating
+                                                                             or incident report) or mark it as an
+                                                                             assumption in the why panel
+
+                                                                             Page 31 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+ Questions to settle early
+
+    1. Does Northmark provide any data, a sandbox or a sample facility map? The prompt
+       came with no published resources, so the Northmark workshop is the best chance to
+       ask. If they do, replace the simulator with their format.
+
+    2. How many sponsor tracks does Devpost allow? The planning notes and the site
+       disagree.
+
+    3. Is borrowing a sensor or a fan rig from the hardware area allowed, and does the Best
+       Hardware track expect a live table demo?
+
+    4. What does Northmark mean by a "handoff" in their own operations? Shift change,
+       vendor-to-operator, team-to-team? The answer shapes the handoff note.
+
+    5. Does the team want to enter the HackUTD Best Hardware track, the data-store
+       tracks, or both? This sets which integrations are worth the hours.
+
+ What this document does not cover
+
+  It does not give plant-specific thresholds, because those come from equipment
+  manufacturers and the facility's own commissioning data. It does not validate any model,
+  since no facility data was available. The thresholds and statistics quoted in the earlier
+  sections are published figures and should be checked against the cited page before they
+  appear on a slide.
+
+ Sources for the sensor, prediction, 3D, dashboard and build sections
+
+  Sources for the failure-mode and cascade sections (Uptime Institute surveys, ASHRAE
+  guidance, the incident reports) are linked inline where they are used.
+  Sensor and vibration
+
+       Analog Devices ADXL355 product page
+       Performance Evaluation of Low-Cost MEMS Accelerometers, IEOM 2026
+       Modal analysis and condition monitoring for an electric motor through MEMS
+       accelerometers
+       How accuracy is achieved in MEMS sensors, element14
+       TE Connectivity design note on accelerometer technologies
+       Use of MEMS sensors for condition monitoring: accuracy of features
+       OxMaint vibration analysis checklist
+       OxMaint beginner's guide to vibration monitoring
+
+                                                                                                                                                                                                                                                  Page 32 of 33
+Northmark Data Center Outage Prevention: Research & Feasibility
+
+  Prediction and data
+       Google and DeepMind: cooling energy reduction
+       Transforming Future Data Center Operations via Physical AI (arXiv 2504.04982)
+       Fast 3D Surrogate Modeling for Data Center Thermal Management, AAAI 2026
+       Same paper, arXiv PDF
+       Community catalog of bearing datasets
+       Review of multi-fault diagnosis datasets (arXiv 2206.14153)
+       XJTU-SY dataset tutorial
+
+  Digital twin, water and rendering
+       DCVerse dual-loop control (arXiv 2604.07559)
+       OpenDT open-source datacenter digital twin
+       Delta Dynamics GPU water simulation
+       WebFlood shallow-water simulation in the browser
+       Celeris-WebGPU
+       Three.js instancing with React Three Fiber, Codrops
+
+  Dashboard design
+       HMI design and ISA-101, Roboflow
+       High-performance HMIs panel, Control Engineering
+       Better HMI layout tips, AutomationDirect
+       ISA-101 compliance how-to, Tatsoft
+       Alarm flooding summary of EEMUA 191 and ISA-18.2
+
+                                                                                                                                                                                                                                                  Page 33 of 33
+
