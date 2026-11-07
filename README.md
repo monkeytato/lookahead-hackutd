@@ -74,19 +74,37 @@ Rack Monitor (UNO R4, USB JSON @1 Hz) ─► bridge ─► SSE ─► scanner ap
 
 ## NVIDIA Nemotron — the simulation director
 
-Nemotron doesn't produce the numbers. It decides **which simulations to run, and which physical scan to take next.** The deterministic engine computes every clock. Nemotron calls the engine as tools:
+This is an agent, not a chatbot: no chat box, multi-step tool use, real outside services, and a plan that updates itself when the physical world answers. Nemotron doesn't produce the numbers; it decides **which simulations to run, which scan to take next, and what to propose**. The deterministic engine computes every clock.
 
-1. `get_situation`: open incidents, evidence states, clocks and the latest rig scans.
-2. `scan_value`: for each unverified incident, runs the engine **twice**, once assuming the reading is real and once assuming it isn't. The difference in first rack loss and in the top-ranked incident is the scan's **decision value**.
-3. `run_scenario` and `compare_runs`: extra what-ifs the model chooses, such as a second fault or a confirmed dependency.
-4. `recommend`: the next scan (asset, point, 10 s hold) and the next action. Every clock it quotes must cite a run id, and a validator strips any number no run produced.
+```
+operator ▶ plan 1: situation → rig + weather → engine what-ifs → queue best scan
+                                                                    │ technician holds scan
+          plan 2 (automatic) ◀── scan lands, evidence applied ◀─────┘
+             └─ new scan, or proposes "valve close" / a ticket → a person approves → rig / GitHub
+```
 
-**Send to scanner** turns the recommendation into a request on the phone, and the scan result comes back as evidence.
+| Tool | Reaches | What it does |
+| --- | --- | --- |
+| `get_situation` | engine | Open incidents, evidence states, baseline clocks (run-1), latest scans |
+| `scan_value` | engine | Runs the engine **twice** per unverified incident (reading real vs not). The difference in first rack loss and in the top-ranked incident is the scan's **decision value** |
+| `run_scenario`, `compare_runs` | engine | Extra what-ifs the model chooses (a second fault, a confirmed dependency) |
+| `get_rig_status` | Rack Monitor (USB) | Live frame, self-check flags and root-cause events: is the rig trustworthy right now? |
+| `get_weather` | **api.weather.gov** | NWS hourly forecast for the site. Context for cooling-plant risk only; never turned into a clock |
+| `request_scan` | scanner phones | Queues the recommended scan itself (low risk: a person performs it) |
+| `propose_rig_action` | approval queue → rig | Safe-direction commands only (`valve close`, `flap close`, `auto on`, fans ≤ 70 %). Runs **only after a person approves** it on the dashboard |
+| `open_ticket` | approval queue → **GitHub Issues** | Drafts a ticket for corroborated critical incidents. Filed only after approval |
+| `recommend` | — | Next scan, next action, and hypotheses citing run ids. A validator strips any number no run produced |
 
-On the fixture at 02:35 it picks the BATT-B floor scan, with a decision value of 21.8: if wet, the first rack is lost in 19 min; if dry, no rack is lost within the hour.
+**Re-plans on its own.** When a scan the director queued comes back, the bridge applies the result to the director's snapshot and runs it again (up to 3 times per chain). The dashboard shows *Plan 2 · automatic re-plan after SCN-…* with what changed.
 
-- **Model:** `nvidia/nemotron-3-super-120b-a12b` via `integrate.api.nvidia.com`, with tool calling.
-- **Fallback:** with no key, a timeout or invalid output, the local planner runs the same steps and the UI labels it.
+On the fixture at 02:35:
+- **Plan 1** picks the BATT-B floor scan, with a decision value of 21.8: if wet, the first rack is lost in 19 min; if dry, no rack is lost within the hour.
+- The scan comes back **wet**.
+- **Plan 2** moves the next scan to PIPE-L2 and proposes `valve close` (the rig's valve is open) plus a ticket for INC-1045. Both wait for approval.
+
+- **Model:** `nvidia/nemotron-3-super-120b-a12b` via `integrate.api.nvidia.com`, with tool calling. A Nemotron NIM on a Brev GPU also works: set `NVIDIA_BASE_URL`.
+- **Fallback:** with no key, a timeout or invalid output, the local planner runs the same tools in a fixed order, including the external ones, and the UI labels it.
+- **Safety:** the model never gets raw network or shell access. Each tool is a fixed, validated request, and tool results are treated as data. Nothing that moves hardware or posts outside the system runs without a person's approval.
 
 ## Demo script (2 min)
 
@@ -115,7 +133,7 @@ On the fixture at 02:35 it picks the BATT-B floor scan, with a decision value of
 | Sensor ↔ app connection | **USB serial, JSON lines at 1 Hz** → bridge → SSE. Firmware in `hardware/` is **not yet compiled or flashed**; tested against the simulated rig only. |
 | Rig scans and rules | Implemented with tests. The live rig is untested until the hardware is flashed. |
 | Verification verdicts | Rules over four explicit states. Evidence comes from Rack Monitor scans, with labeled fixtures as a fallback. |
-| NVIDIA Nemotron director | Tool-calling agent plus a validator. Tested against a **mocked** endpoint; a live run needs `NVIDIA_API_KEY`. |
+| NVIDIA Nemotron director | Tool-calling agent with engine tools, the live NWS weather API, the rig, the scan queue and approval-gated rig commands / GitHub tickets. Re-plans automatically. Nemotron itself is tested against a **mocked** endpoint; a live run needs `NVIDIA_API_KEY`. The external tools and re-plan were verified live via the local planner. |
 | Persistence | Dashboard: `localStorage` + `BroadcastChannel`. Bridge: scans, requests and events in `server/.data/`. Not production storage or auth. |
 | People positions | Manual or QR check-ins only, with stale positions labeled. No indoor tracking. |
 

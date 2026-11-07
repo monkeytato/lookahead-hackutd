@@ -466,3 +466,18 @@
 .dir-rec-k { font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-3); margin-top: 4px; }
 .dir-rec-v { font-size: 15px; font-weight: 600; }
 .dir-rec-actions { display: flex; gap: 1px; margin-top: 6px; flex-wrap: wrap; }
+
+/* director: plans, external services, approvals */
+.dir-head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.dir-gen { background: var(--inverse); color: #fff; font-size: 11px; padding: 2px 6px; }
+.dir-head-r { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+.dir-steps li.is-ext::before { background: var(--interactive); border-color: var(--interactive); }
+.dir-steps li.is-err .dir-sum { color: #8a3800; }
+.dir-svc { font-size: 10px; letter-spacing: 0.5px; margin-left: 6px; padding: 0 4px; border: 1px solid var(--interactive); color: var(--interactive); }
+.dir-diff { padding: var(--s3) var(--s4); background: var(--p3-bg); border-left: 3px solid var(--p3); }
+.dir-queued { font-size: 12px; color: var(--ok-text); align-self: center; padding-right: var(--s3); }
+.dir-approvals { display: grid; gap: var(--s3); padding: var(--s4); border: 1px solid var(--border-strong); }
+.dir-act { display: grid; gap: 4px; padding-top: var(--s3); border-top: 1px solid var(--border); }
+.dir-act:first-of-type { border-top: 0; padding-top: 0; }
+.dir-act-h { display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap; }
+.dir-act.is-done { color: var(--text-2); }

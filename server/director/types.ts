@@ -6,7 +6,7 @@
  * WHICH scan to take next. Every number it reports comes from a tool result and is cited by run id.
  */
 import type { ID, Incident, Metric } from '../../src/domain/types';
-import type { Scan } from '../../src/domain/rig/protocol';
+import type { Scan, ScanRequest } from '../../src/domain/rig/protocol';
 
 export type Evidence = Incident['evidence'];
 
@@ -103,6 +103,27 @@ export interface DirectorStep {
   runId?: string;
   runIds?: string[];
   ok: boolean;
+  /** Set when the tool reached outside the engine: a public API, the physical rig, or the scan queue */
+  service?: ExternalService;
+}
+
+export type ExternalService = 'api.weather.gov' | 'rack-monitor' | 'scan-queue' | 'approval-queue' | 'github';
+
+/** An action the director may only PROPOSE. A person approves it on the dashboard before it runs. */
+export interface PendingAction {
+  id: string;
+  kind: 'rig_command' | 'ticket';
+  createdAt: string;
+  proposedBy: string;
+  reason: string;
+  incidentId?: string;
+  payload: { cmd: string } | { title: string; body: string; labels: string[] };
+  status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
+  decidedBy?: string;
+  decidedAt?: string;
+  result?: string;
+  /** e.g. the created issue URL */
+  url?: string;
 }
 
 export interface Hypothesis { label: string; support: string; runIds: string[] }
@@ -129,4 +150,11 @@ export interface DirectorResult {
   /** When Nemotron was tried and the planner took over: what Nemotron did before it failed */
   nemotronSteps?: DirectorStep[];
   elapsedMs: number;
+  /** Scan requests the director queued itself (low-risk: a person still takes the scan) */
+  queuedRequests?: ScanRequest[];
+  /** Hardware / outward actions the director proposed; they wait for human approval */
+  proposedActions?: PendingAction[];
+  /** Re-plan chain: 1 = operator-triggered, 2+ = automatic re-plan after a requested scan landed */
+  generation?: number;
+  trigger?: string;
 }

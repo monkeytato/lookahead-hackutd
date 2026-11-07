@@ -14,7 +14,9 @@ import type { ChatMessage, Env, FetchLike, NemotronConfig } from './nemotron';
 import { NemotronError, chatCompletion, nemotronConfigFromEnv, thinkingPrefix } from './nemotron';
 import { runLocalPlanner } from './planner';
 import { MAX_RUNS_PER_SESSION, TOOL_DEFS, createSession, dispatchTool } from './tools';
-import type { DirectorInput, DirectorResult, DirectorStep, DirectorUsage } from './types';
+import type { DirectorInput, DirectorResult, DirectorStep, DirectorUsage, ExternalService, PendingAction } from './types';
+import type { ScanRequest } from '../../src/domain/rig/protocol';
+import { EXTERNAL_TOOL_DEFS, dispatchExternal, type ExternalServices } from './external';
 import { validateRecommendation } from './validate';
 
 export const MAX_TOOL_TURNS = 8;
@@ -24,6 +26,22 @@ export interface DirectorOptions {
   fetchImpl?: FetchLike;
   env?: Env;
   maxTurns?: number;
+  /** Bridge-provided services (weather, rig, scan queue, approval queue). Absent in pure unit tests. */
+  ext?: ExternalServices;
+  generation?: number;
+  trigger?: string;
+}
+
+/** Wrap services so the result can report what the director queued / proposed in this run. */
+export function recordingServices(ext: ExternalServices | undefined) {
+  const queued: ScanRequest[] = [];
+  const proposed: PendingAction[] = [];
+  const wrapped: ExternalServices | undefined = ext && {
+    ...ext,
+    requestScan: (r) => { const q = ext.requestScan(r); queued.push(q); return q; },
+    proposeAction: (a) => { const p = ext.proposeAction(a); proposed.push(p); return p; },
+  };
+  return { wrapped, queued, proposed };
 }
 
 export const SYSTEM_PROMPT = `You are the simulation director for a data-center operations team (night shift, simulated facility DAL-1).
@@ -34,7 +52,9 @@ Method:
 2. Form competing hypotheses (e.g. "the alarm is real" vs "sensor fault"; "the fan trips in 10 min"; "the leak also reaches BATT-B"). Test them with run_scenario and scan_value; compare with compare_runs.
 3. Prefer the scan with the highest decision value: the reading whose result would most change what the team does first (top-ranked incident, earliest clocks). Do not recommend a scan the rig cannot measure, or one already taken, unless conditions changed.
 4. Prefer verification before irreversible action (valve isolation, battery/UPS work, suppressing alarms).
-5. Finish by calling recommend exactly once.
+5. Use the outside world when it matters: get_rig_status to check the rig is trustworthy before relying on its scans; get_weather for cooling-plant context (context only, never a clock number).
+6. Act within your authority: call request_scan for the scan you recommend (a person performs it; you will be re-run automatically when the result arrives). Use propose_rig_action only for safe-direction commands backed by evidence, and open_ticket only for corroborated critical incidents — both wait for human approval.
+7. Finish by calling recommend exactly once.
 
 Rules:
 - Every number you write (minutes, T+/T− times) must be copied from a tool result. Cite the run id (e.g. run-3) next to it. Never estimate, interpolate or invent a number.
@@ -64,17 +84,19 @@ export async function runDirector(input: DirectorInput, opts: DirectorOptions = 
   const started = Date.now();
   const env = opts.env ?? (process.env as Env);
   const cfg = nemotronConfigFromEnv(env);
-  if (!cfg) return runLocalPlanner(input, 'NVIDIA_API_KEY not set — deterministic local planner', started);
+  const rec = recordingServices(opts.ext);
+  const tag = (r: DirectorResult): DirectorResult => ({ ...r, queuedRequests: rec.queued, proposedActions: rec.proposed, generation: opts.generation ?? 1, trigger: opts.trigger ?? 'operator' });
+  if (!cfg) return tag(await runLocalPlanner(input, 'NVIDIA_API_KEY not set — deterministic local planner', started, rec.wrapped));
   const fetchImpl = opts.fetchImpl ?? (globalThis.fetch as unknown as FetchLike);
-  if (typeof fetchImpl !== 'function') return runLocalPlanner(input, 'no fetch implementation available', started);
+  if (typeof fetchImpl !== 'function') return tag(await runLocalPlanner(input, 'no fetch implementation available', started, rec.wrapped));
 
   const session = createSession(input); // throws DirectorInputError on a bad scenario / t
   const steps: DirectorStep[] = [];
   const usage: DirectorUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0 };
   try {
-    await agentLoop(cfg, session.input, fetchImpl, opts.maxTurns ?? MAX_TOOL_TURNS, started, usage, steps, session);
+    await agentLoop(cfg, session.input, fetchImpl, opts.maxTurns ?? MAX_TOOL_TURNS, started, usage, steps, session, rec.wrapped, cfg.model);
     const { recommendation, warnings } = validateRecommendation(session.recommendation!, session);
-    return {
+    return tag({
       provider: 'nemotron',
       model: cfg.model,
       steps,
@@ -83,19 +105,22 @@ export async function runDirector(input: DirectorInput, opts: DirectorOptions = 
       usage,
       warnings: [...session.notes, ...warnings],
       elapsedMs: Date.now() - started,
-    };
+    });
   } catch (e) {
     if (!(e instanceof Fallback) && !(e instanceof NemotronError)) throw e;
     const reason = e instanceof NemotronError ? `Nemotron ${e.kind}: ${e.message}` : e.message;
-    const res = runLocalPlanner(input, `${reason} (${cfg.model}) — deterministic local planner`, started);
-    return { ...res, usage: usage.requests ? usage : undefined, nemotronSteps: steps };
+    // anything Nemotron already queued/proposed stays recorded; the planner skips duplicates
+    const res = await runLocalPlanner(input, `${reason} (${cfg.model}) — deterministic local planner`, started, rec.wrapped);
+    return tag({ ...res, usage: usage.requests ? usage : undefined, nemotronSteps: steps });
   }
 }
 
 async function agentLoop(
   cfg: NemotronConfig, input: DirectorInput, fetchImpl: FetchLike, maxTurns: number, started: number,
   usage: DirectorUsage, steps: DirectorStep[], session: ReturnType<typeof createSession>,
+  ext?: ExternalServices, model = 'nemotron',
 ): Promise<void> {
+  const tools = ext ? [...TOOL_DEFS, ...EXTERNAL_TOOL_DEFS] : TOOL_DEFS;
   const messages: ChatMessage[] = [
     { role: 'system', content: thinkingPrefix(cfg) + SYSTEM_PROMPT },
     { role: 'user', content: userPrompt(input) },
@@ -109,7 +134,7 @@ async function agentLoop(
     if (left <= 0) throw new Fallback(`time budget of ${cfg.budgetMs} ms exhausted after ${turn} turns`);
     let res;
     try {
-      res = await chatCompletion(cfg, messages, TOOL_DEFS, { fetchImpl, timeoutMs: Math.min(cfg.timeoutMs, left), withTemplateKwargs: templateKwargs });
+      res = await chatCompletion(cfg, messages, tools, { fetchImpl, timeoutMs: Math.min(cfg.timeoutMs, left), withTemplateKwargs: templateKwargs });
     } catch (e) {
       // Some hosted deployments reject chat_template_kwargs: retry this turn once without it.
       if (e instanceof NemotronError && e.kind === 'http' && (e.status === 400 || e.status === 422) && templateKwargs && /chat_template|kwargs|extra/i.test(e.message)) {
@@ -131,10 +156,10 @@ async function agentLoop(
 
     messages.push({ role: 'assistant', content: res.content ?? null, tool_calls: res.toolCalls });
     for (const tc of res.toolCalls) {
-      const out = dispatchTool(session, tc.function.name, tc.function.arguments);
+      const out = (await dispatchExternal(session, ext, tc.function.name, tc.function.arguments, `Nemotron director (${model})`)) ?? dispatchTool(session, tc.function.name, tc.function.arguments);
       let args: unknown = tc.function.arguments;
       try { args = JSON.parse(tc.function.arguments); } catch { /* keep the raw (invalid) string for the log */ }
-      steps.push({ tool: tc.function.name, args, summary: out.summary, runId: out.runId, runIds: out.runIds, ok: out.ok });
+      steps.push({ tool: tc.function.name, args, summary: out.summary, runId: out.runId, runIds: out.runIds, ok: out.ok, service: 'service' in out ? (out.service as ExternalService) : undefined });
       messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(out.content) });
       if (out.invalidJson && ++invalidJson > MAX_INVALID_JSON) throw new Fallback(`Nemotron sent invalid tool JSON ${invalidJson} times`);
       if (out.ok && out.terminal) return;

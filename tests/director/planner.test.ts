@@ -4,8 +4,9 @@ import { facility, scenarios, seedReadings } from '../../src/domain/fixture';
 import { runDirector, runLocalPlanner } from '../../server/director';
 import { floorScan, leakInput } from './helpers';
 
+const res = await runLocalPlanner(leakInput(), 'test');
+
 describe('local planner on scn-riser-leak at T+25', () => {
-  const res = runLocalPlanner(leakInput(), 'test');
 
   it('runs the documented tool sequence through the shared dispatcher', () => {
     const tools = res.steps.map((s) => s.tool);
@@ -56,19 +57,19 @@ describe('local planner on scn-riser-leak at T+25', () => {
     expect(Object.keys(res.runs).length).toBeLessThanOrEqual(10);
   });
 
-  it('is deterministic', () => {
-    const again = runLocalPlanner(leakInput(), 'test');
+  it('is deterministic', async () => {
+    const again = await runLocalPlanner(leakInput(), 'test');
     expect(again.recommendation).toEqual(res.recommendation);
   });
 
-  it('does not repeat a scan already taken — moves on to the next-best reading', () => {
-    const r = runLocalPlanner(leakInput({ scans: [floorScan('BATT-B', 1)] }), 'test');
+  it('does not repeat a scan already taken — moves on to the next-best reading', async () => {
+    const r = await runLocalPlanner(leakInput({ scans: [floorScan('BATT-B', 1)] }), 'test');
     expect(r.recommendation.nextScan?.assetId).toBe('PIPE-L2');
   });
 
-  it('with no uncertain evidence it recommends no scan', () => {
+  it('with no uncertain evidence it recommends no scan', async () => {
     const incidents = leakInput().incidents.map((i) => ({ ...i, evidence: 'corroborated_abnormal' as const }));
-    const r = runLocalPlanner(leakInput({ incidents }), 'test');
+    const r = await runLocalPlanner(leakInput({ incidents }), 'test');
     expect(r.recommendation.nextScan).toBeNull();
     expect(r.recommendation.nextAction).toMatch(/top-ranked incident/);
   });

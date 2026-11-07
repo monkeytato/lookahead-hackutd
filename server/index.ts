@@ -25,7 +25,8 @@ import {
 import { SimRig } from '../src/domain/rig/simDevice';
 import { summarizeScan } from '../src/domain/rig/scan';
 import { diagnose, followUp } from '../src/domain/rig/diagnose';
-import { runDirector } from './director';
+import { createAgentHub } from './agentHub';
+import type { PendingAction } from './director/types';
 import { loadEnv } from './env';
 
 loadEnv();
@@ -42,7 +43,7 @@ const MAX_FRAMES = 900; // 15 min at 1 Hz
 let framesReceived = 0;
 let badLines = 0;
 
-interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[] }
+interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[] }
 const store: Store = loadStore();
 
 let device: BridgeStatus['device'] = { mode: 'disconnected', port: null, deviceId: null, firmware: null, lastFrameAt: null, framesReceived: 0 };
@@ -54,7 +55,7 @@ interface ActiveScan { id: string; assetId: string; point: string; operator: str
 let active: ActiveScan | null = null;
 
 function loadStore(): Store {
-  try { return JSON.parse(readFileSync(DATA_FILE, 'utf8')) as Store; } catch { return { scans: [], requests: [], events: [] }; }
+  try { const s = JSON.parse(readFileSync(DATA_FILE, 'utf8')) as Store; return { ...s, actions: s.actions ?? [] }; } catch { return { scans: [], requests: [], events: [], actions: [] }; }
 }
 let saveTimer: NodeJS.Timeout | null = null;
 function save() {
@@ -215,10 +216,33 @@ function finishScan(id: string, reason: 'released' | 'auto'): Scan | null {
     if (req) { req.status = 'done'; req.scanId = scan.id; broadcast('request', req); }
     save();
     broadcast('scan', scan);
+    hub.onScan(scan).catch((e) => console.error('[bridge] auto re-plan failed', e));
   }
   broadcast('status', status());
   return scan;
 }
+
+// -------------------------------------------------------- requests + agent
+
+function createRequest(b: { assetId: string; point: string; reason: string; incidentId?: string; taskId?: string; requestedBy: string }): ScanRequest {
+  const dup = store.requests.find((r) => r.status === 'open' && r.assetId === b.assetId && r.point === b.point);
+  if (dup) return dup;
+  const r: ScanRequest = { id: `REQ-${randomUUID().slice(0, 6)}`, createdAt: new Date().toISOString(), requestedBy: b.requestedBy, reason: b.reason, assetId: b.assetId, point: b.point, incidentId: b.incidentId, taskId: b.taskId, status: 'open' };
+  store.requests.push(r); save(); broadcast('request', r);
+  return r;
+}
+
+const hub = createAgentHub({
+  broadcast,
+  latestFrame: () => frames.at(-1) ?? null,
+  recentEvents: () => store.events.slice(-10),
+  deviceMode: () => device.mode,
+  createRequest,
+  sendCommand: (cmd) => sendCommand(cmd),
+  actions: store.actions,
+  save,
+  env: process.env,
+});
 
 // ------------------------------------------------------------------ http
 
@@ -242,7 +266,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/stream') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
       res.write(`event: status\ndata: ${JSON.stringify(status())}\n\n`);
-      res.write(`event: hello\ndata: ${JSON.stringify({ frames: frames.slice(-120), scans: store.scans.slice(-30), requests: store.requests.filter((r) => r.status === 'open'), events: store.events.slice(-20) })}\n\n`);
+      res.write(`event: hello\ndata: ${JSON.stringify({ frames: frames.slice(-120), scans: store.scans.slice(-30), requests: store.requests.filter((r) => r.status === 'open'), events: store.events.slice(-20), actions: store.actions.slice(-20), director: hub.latest() })}\n\n`);
       clients.add(res);
       const ka = setInterval(() => res.write(': ka\n\n'), 15000);
       req.on('close', () => { clearInterval(ka); clients.delete(res); });
@@ -286,11 +310,7 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const assetId = str(b.assetId, 24), point = str(b.point), reason = str(b.reason, 400);
       if (!assetId || !point || !reason) return json(res, 400, { error: 'assetId, point and reason are required' });
-      const dup = store.requests.find((r) => r.status === 'open' && r.assetId === assetId && r.point === point);
-      if (dup) return json(res, 200, dup);
-      const r: ScanRequest = { id: `REQ-${randomUUID().slice(0, 6)}`, createdAt: new Date().toISOString(), requestedBy: str(b.requestedBy, 60) ?? 'dashboard', reason, assetId, point, incidentId: str(b.incidentId, 24) ?? undefined, taskId: str(b.taskId, 24) ?? undefined, status: 'open' };
-      store.requests.push(r); save(); broadcast('request', r);
-      return json(res, 200, r);
+      return json(res, 200, createRequest({ assetId, point, reason, requestedBy: str(b.requestedBy, 60) ?? 'dashboard', incidentId: str(b.incidentId, 24) ?? undefined, taskId: str(b.taskId, 24) ?? undefined }));
     }
     const cancel = p.match(/^\/api\/requests\/([\w-]+)\/cancel$/);
     if (req.method === 'POST' && cancel) {
@@ -308,18 +328,26 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && p === '/api/director') {
       const b = await readBody(req, 1_000_000);
-      const result = await runDirector({
+      const rec = await hub.plan({
         scenarioId: String(b.scenarioId ?? 'scn-riser-leak'), t: Number(b.t ?? 0),
         incidents: Array.isArray(b.incidents) ? b.incidents : [],
         scans: Array.isArray(b.scans) ? b.scans : store.scans.slice(-20),
         confirmedEdgeIds: Array.isArray(b.confirmedEdgeIds) ? b.confirmedEdgeIds : [],
         question: str(b.question, 500) ?? undefined,
       });
-      return json(res, 200, result);
+      return json(res, 200, { ...rec.result, recordId: rec.id, chainId: rec.chainId });
+    }
+    if (req.method === 'GET' && p === '/api/director/latest') return json(res, 200, hub.latest());
+    if (req.method === 'GET' && p === '/api/actions') return json(res, 200, store.actions.slice(-50));
+    const decide = p.match(/^\/api\/actions\/([\w-]+)\/(approve|reject)$/);
+    if (req.method === 'POST' && decide) {
+      const b = await readBody(req);
+      const a = await hub.decide(decide[1], decide[2] as 'approve' | 'reject', str(b.by, 60) ?? 'operator');
+      return a ? json(res, 200, a) : json(res, 404, { error: 'no such action' });
     }
 
     if (req.method === 'POST' && p === '/api/reset') {
-      store.scans = []; store.requests = []; store.events = []; save();
+      store.scans = []; store.requests = []; store.events = []; store.actions.length = 0; save();
       broadcast('hello', { frames: frames.slice(-120), scans: [], requests: [], events: [] });
       return json(res, 200, { ok: true });
     }

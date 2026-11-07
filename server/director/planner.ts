@@ -12,6 +12,15 @@ import { RIG_METRICS, UNCERTAIN_EVIDENCE, createSession, defaultMetricFor, dispa
 import type { Session } from './tools';
 import type { CompactRun, DirectorInput, DirectorResult, DirectorStep, Hypothesis, ScanValueResult } from './types';
 import { validateRecommendation } from './validate';
+import { dispatchExternal, type ExternalServices } from './external';
+
+const PLANNER = 'Local planner';
+
+async function callExt(session: Session, steps: DirectorStep[], ext: ExternalServices, tool: string, args: Record<string, unknown>) {
+  const out = (await dispatchExternal(session, ext, tool, args, PLANNER))!;
+  steps.push({ tool, args, summary: out.summary, ok: out.ok, service: out.service });
+  return out;
+}
 
 const assetType = new Map(facility.assets.map((a) => [a.id, a.type]));
 
@@ -60,11 +69,21 @@ function arrivalOf(session: Session, assetId: ID): number | null {
   return session.water.arrival[assetId] ?? null;
 }
 
-export function runLocalPlanner(input: DirectorInput, fallbackReason?: string, started = Date.now()): DirectorResult {
+export async function runLocalPlanner(input: DirectorInput, fallbackReason?: string, started = Date.now(), ext?: ExternalServices): Promise<DirectorResult> {
   const session = createSession(input);
   const steps: DirectorStep[] = [];
 
   call(session, steps, 'get_situation', {});
+  // outside world first: is the rig trustworthy, and is the weather stressing the cooling plant?
+  let rigTrust: string | null = null;
+  let rig: { valve?: string; floor_raw?: number; source?: string } | null = null;
+  let weatherNote: string | null = null;
+  if (ext) {
+    const r = await callExt(session, steps, ext, 'get_rig_status', {});
+    if (r.ok) { const c = r.content as { trust: string; valve: string; floor_raw: number; source: string }; rigTrust = c.trust; rig = c; }
+    const w = await callExt(session, steps, ext, 'get_weather', { hours: 6 });
+    if (w.ok) weatherNote = (w.content as { note: string }).note;
+  }
   const base = session.runs.get(session.baselineId!)!;
   const rankOf = (id: ID) => base.ranking.find((r) => r.incidentId === id)?.rank ?? 99;
 
@@ -134,6 +153,25 @@ export function runLocalPlanner(input: DirectorInput, fallbackReason?: string, s
     nextAction += ` ${offRig.assetId}: the rig cannot measure ${metricLabel(offRig.metric)} — send the ${offRig.incidentId} runbook check (decision value ${offRig.decisionValue}, ${ra.id}/${rn.id}).`;
   }
   if (top && best) nextAction += ` Top-ranked incident in ${base.id}: ${top.incidentId}${topInc ? ` (${topInc.title})` : ''}.`;
+
+  if (rigTrust && rigTrust !== 'rig self-checks clear') nextAction += ` Rig self-check: ${rigTrust}.`;
+  if (weatherNote) summary += ` Weather (NWS): ${weatherNote}`;
+
+  if (ext) {
+    // act within authority: queue the scan (a person performs it); propose, never execute, the rest
+    if (nextScan) await callExt(session, steps, ext, 'request_scan', { ...nextScan, incidentId: best?.incidentId });
+    const latestWet = session.input.scans.filter((sc) => sc.status === 'complete' && (sc.channels.floor_wet?.mean ?? 0) >= 0.5).at(-1);
+    if (latestWet && rig?.valve === 'open') {
+      await callExt(session, steps, ext, 'propose_rig_action', { cmd: 'valve close', reason: `Floor scan ${latestWet.id} at ${latestWet.assetId} is wet while the rig's isolation valve is open — isolate the loop.`, incidentId: session.incidents.find((i) => i.rootAssetId === latestWet.assetId || i.alertAssetIds.includes(latestWet.assetId))?.id });
+    }
+    for (const inc of session.incidents.filter((i) => i.severity === 'critical' && i.evidence === 'corroborated_abnormal')) {
+      const r = base.ranking.find((x) => x.incidentId === inc.id);
+      await callExt(session, steps, ext, 'open_ticket', {
+        incidentId: inc.id, severity: 'critical', title: `[${inc.id}] ${inc.title}`,
+        body: [`Corroborated by a Rack Monitor scan. Rank ${r?.rank ?? '—'} in ${base.id}.`, '', `Baseline (${base.id}): ${describe(base)}.`, '', `Next action: ${nextAction}`, '', '_Drafted by the Lookahead simulation director (local planner); approved by a person before filing._'].join('\n'),
+      });
+    }
+  }
 
   const rec = call(session, steps, 'recommend', { nextScan, nextAction, hypotheses, summary });
   if (!rec.ok || !session.recommendation) throw new Error(`local planner produced an invalid recommendation: ${rec.summary}`);

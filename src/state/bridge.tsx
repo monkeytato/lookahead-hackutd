@@ -4,6 +4,7 @@
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { BridgeStatus, RigEvent, Scan, ScanRequest, StampedFrame } from '../domain/rig/protocol';
+import type { DirectorRecordView, PendingActionView } from '../views/directorTypes';
 
 export interface BridgeState {
   online: boolean;
@@ -13,9 +14,15 @@ export interface BridgeState {
   scans: Scan[];
   requests: ScanRequest[];
   events: RigEvent[];
+  /** Hardware commands / tickets the director proposed, awaiting (or past) human approval */
+  actions: PendingActionView[];
+  /** Director plans, newest last — includes automatic re-plans after requested scans */
+  plans: DirectorRecordView[];
+  /** A re-plan is running on the bridge right now */
+  replanning: { chainId: string; generation: number; trigger: string } | null;
 }
 
-const empty: BridgeState = { online: false, status: null, frames: [], latest: null, scans: [], requests: [], events: [] };
+const empty: BridgeState = { online: false, status: null, frames: [], latest: null, scans: [], requests: [], events: [], actions: [], plans: [], replanning: null };
 const Ctx = createContext<BridgeState>(empty);
 const KEEP = 180;
 
@@ -32,12 +39,12 @@ export function BridgeProvider({ children }: { children: ReactNode }) {
     const connect = () => {
       lastMsg = Date.now();
       es = new EventSource('/api/stream');
-      for (const k of ['status', 'hello', 'frame', 'scan', 'request', 'rig_event']) es.addEventListener(k, seen);
+      for (const k of ['status', 'hello', 'frame', 'scan', 'request', 'rig_event', 'action', 'director', 'director_pending']) es.addEventListener(k, seen);
       es.addEventListener('open', () => { retry.current = 0; setS((p) => ({ ...p, online: true })); });
       es.addEventListener('status', (e) => setS((p) => ({ ...p, online: true, status: JSON.parse((e as MessageEvent).data) })));
       es.addEventListener('hello', (e) => {
         const d = JSON.parse((e as MessageEvent).data);
-        setS((p) => ({ ...p, online: true, frames: d.frames, latest: d.frames.at(-1) ?? null, scans: d.scans, requests: d.requests, events: d.events }));
+        setS((p) => ({ ...p, online: true, frames: d.frames, latest: d.frames.at(-1) ?? null, scans: d.scans, requests: d.requests, events: d.events, actions: d.actions ?? [], plans: d.director && !p.plans.some((x) => x.id === d.director.id) ? [...p.plans, d.director] : p.plans }));
       });
       es.addEventListener('frame', (e) => {
         const f = JSON.parse((e as MessageEvent).data) as StampedFrame;
@@ -55,6 +62,15 @@ export function BridgeProvider({ children }: { children: ReactNode }) {
         const ev = JSON.parse((e as MessageEvent).data) as RigEvent;
         setS((p) => ({ ...p, events: p.events.some((x) => x.id === ev.id) ? p.events.map((x) => (x.id === ev.id ? ev : x)) : [...p.events, ev].slice(-50) }));
       });
+      es.addEventListener('action', (e) => {
+        const a = JSON.parse((e as MessageEvent).data) as PendingActionView;
+        setS((p) => ({ ...p, actions: [...p.actions.filter((x) => x.id !== a.id), a].slice(-30) }));
+      });
+      es.addEventListener('director', (e) => {
+        const r = JSON.parse((e as MessageEvent).data) as DirectorRecordView;
+        setS((p) => ({ ...p, replanning: null, plans: [...p.plans.filter((x) => x.id !== r.id), r].slice(-12) }));
+      });
+      es.addEventListener('director_pending', (e) => setS((p) => ({ ...p, replanning: JSON.parse((e as MessageEvent).data) })));
       es.onerror = () => {
         es?.close();
         setS((p) => ({ ...p, online: false }));
