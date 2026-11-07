@@ -18,7 +18,7 @@ Up to four people work in parallel. The repo is split so that slices rarely touc
 
 1. `git switch -c <your-name>/<short-topic>` from an up-to-date `main`.
 2. Keep PRs small, one vertical slice each.
-3. Before you push, run `npm run typecheck && npm test && npm run build`. CI runs the same checks.
+3. Before you push, run `npm run typecheck && npm test && npm run build`. CI (`docs/ci-workflow.yml`) runs the same checks once enabled; see the note at the top of that file.
 4. Open a PR using the template. One teammate reviews. Squash-merge.
 5. Never commit secrets. `NVIDIA_API_KEY` belongs in `.env.local` (git-ignored); see `.env.example`.
 
