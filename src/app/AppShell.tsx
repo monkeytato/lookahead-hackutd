@@ -7,9 +7,13 @@ import { HandoffView } from '../views/Handoff';
 import { DependenciesView } from '../views/Dependencies';
 import { LogView } from '../views/Log';
 import { FieldView } from '../views/Field';
+import { RigView } from '../views/Rig';
+import { ScanIngest } from '../views/ScanIngest';
+import { deviceLabel, useBridge, useFrameAge } from '../state/bridge';
 
 const NAV = [
   { id: '', label: 'Operations' },
+  { id: 'rig', label: 'Rack node' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'team', label: 'Team' },
   { id: 'dependencies', label: 'Dependencies' },
@@ -20,9 +24,12 @@ const NAV = [
 export function AppShell({ route }: { route: string }) {
   const { state, dispatch, scenario, visibleIncidents } = useOps();
   const [section, param] = route.split('/');
+  const bridge = useBridge();
+  const age = useFrameAge(bridge.latest);
+  const dev = deviceLabel(bridge.status, bridge.online);
   const openCount = visibleIncidents.filter((i) => i.status !== 'resolved').length;
 
-  if (section === 'field') return <FieldView taskId={param} />;
+  if (section === 'field') return <><ScanIngest /><FieldView taskId={param} /></>;
 
   return (
     <div className="shell">
@@ -47,6 +54,8 @@ export function AppShell({ route }: { route: string }) {
             {wallClock(state.t)}<small> T+{Math.floor(state.t)}</small>
           </span>
           <span className="tb-sim" title={scenario.basis}>SIMULATED</span>
+          <a className={`tb-dev tb-dev-${dev.kind}`} href="#/app/rig" title={dev.text}><i aria-hidden="true" />{dev.kind === 'live' ? 'Rig live' : dev.kind === 'sim' ? 'Rig sim' : 'Rig offline'}{age != null && dev.kind !== 'off' && age > 3 ? <em> {Math.round(age)}s</em> : null}</a>
+          <a className="tb-scan" href="#/scan" target="_blank" rel="noopener">Scanner ↗</a>
           <label className="tb-field">
             <span className="sr-only">Demo persona</span>
             <select value={state.persona} onChange={(e) => dispatch({ type: 'persona', persona: e.target.value as Persona })} title="Demo persona — not authentication">
@@ -57,8 +66,10 @@ export function AppShell({ route }: { route: string }) {
           </label>
         </div>
       </header>
+      <ScanIngest />
       <main className="main">
         {!section && <Operations />}
+        {section === 'rig' && <RigView />}
         {section === 'tasks' && <TasksView />}
         {section === 'team' && <TeamView />}
         {section === 'dependencies' && <DependenciesView />}

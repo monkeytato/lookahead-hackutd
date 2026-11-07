@@ -24,7 +24,11 @@ export interface Layers { heat: boolean; water: boolean; deps: boolean; people: 
 export type Persona = 'supervisor' | 'technician' | 'shift_lead';
 
 export interface OpsState {
-  schema: 3;
+  schema: 4;
+  /** Scans from the bridge already turned into evidence */
+  ingestedScanIds: ID[];
+  /** Only bridge scans finished after this ISO time belong to this demo session */
+  sessionStartedAt: string;
   scenarioId: ID;
   t: number;
   playing: boolean;
@@ -49,7 +53,9 @@ const STORAGE_KEY = 'lookahead.ops.v3';
 
 export function initialState(scenarioId = scenarios[0].id): OpsState {
   return {
-    schema: 3,
+    schema: 4,
+    ingestedScanIds: [],
+    sessionStartedAt: new Date().toISOString(),
     scenarioId,
     t: 0,
     playing: false,
@@ -82,7 +88,8 @@ type Action =
   | { type: 'set_availability'; employeeId: ID; availability: Employee['availability'] }
   | { type: 'review_edge'; edgeId: ID; decision: 'confirm' | 'reject'; event: OpEvent }
   | { type: 'toggle_walk_edge'; edgeId: ID; event: OpEvent }
-  | { type: 'ack_handoff'; by: ID; note?: string; event: OpEvent };
+  | { type: 'ack_handoff'; by: ID; note?: string; event: OpEvent }
+  | { type: 'ingest_scan'; scanId: ID; reading: Reading | null; session: VerificationSession | null; incident: Incident | null; event: OpEvent };
 
 function reducer(s: OpsState, a: Action): OpsState {
   switch (a.type) {
@@ -136,6 +143,18 @@ function reducer(s: OpsState, a: Action): OpsState {
         closedWalkEdgeIds: s.closedWalkEdgeIds.includes(a.edgeId) ? s.closedWalkEdgeIds.filter((x) => x !== a.edgeId) : [...s.closedWalkEdgeIds, a.edgeId],
         events: [...s.events, a.event],
       };
+    case 'ingest_scan': {
+      if (s.ingestedScanIds.includes(a.scanId)) return s;
+      const incidents = a.incident && a.session
+        ? s.incidents.map((i) => (i.id === a.incident!.id ? { ...i, evidence: a.session!.verdict, severity: a.session!.verdict === 'measurement_disagreement' && i.severity === 'critical' ? 'advisory' as const : i.severity } : i))
+        : s.incidents;
+      return {
+        ...s, incidents, ingestedScanIds: [...s.ingestedScanIds, a.scanId],
+        capturedReadings: a.reading ? [...s.capturedReadings, a.reading] : s.capturedReadings,
+        verifications: a.session ? [...s.verifications, a.session] : s.verifications,
+        events: [...s.events, a.event],
+      };
+    }
     case 'ack_handoff':
       return { ...s, handoffAcks: [...s.handoffAcks, { by: a.by, t: s.t, note: a.note }], events: [...s.events, a.event] };
   }
@@ -183,7 +202,7 @@ function load(): OpsState | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as OpsState;
-    return parsed.schema === 3 ? { ...parsed, playing: false } : null;
+    return parsed.schema === 4 ? { ...parsed, playing: false } : null;
   } catch { return null; }
 }
 

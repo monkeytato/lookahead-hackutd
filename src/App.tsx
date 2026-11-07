@@ -1,9 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Landing } from './landing/Landing';
 import { OpsProvider } from './state/store';
+import { BridgeProvider } from './state/bridge';
 import { AppShell } from './app/AppShell';
 
 const TwinDemo = lazy(() => import('./twin/TwinDemo').then((m) => ({ default: m.TwinDemo })));
+const ScanApp = lazy(() => import('./scan/ScanApp').then((m) => ({ default: m.ScanApp })));
 
 function useHash() {
   const [hash, setHash] = useState(() => window.location.hash || '#/');
@@ -19,10 +21,15 @@ export default function App() {
   const hash = useHash();
   if (hash.startsWith('#/app')) {
     return (
-      <OpsProvider>
-        <AppShell route={hash.slice('#/app'.length).replace(/^\//, '')} />
-      </OpsProvider>
+      <BridgeProvider>
+        <OpsProvider>
+          <AppShell route={hash.slice('#/app'.length).split('?')[0].replace(/^\//, '')} />
+        </OpsProvider>
+      </BridgeProvider>
     );
+  }
+  if (hash.startsWith('#/scan')) {
+    return <BridgeProvider><Suspense fallback={null}><ScanApp /></Suspense></BridgeProvider>;
   }
   if (hash.startsWith('#/twin-lab')) {
     return <Suspense fallback={null}><TwinDemo /></Suspense>;

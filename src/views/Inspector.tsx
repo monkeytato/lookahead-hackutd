@@ -6,6 +6,8 @@ import { makeEvent, relMin, useOps, wallClock, type Selection } from '../state/s
 import { assetById, checkinState, clocksForIncident, latestFor, METRIC_LABEL, ROLE_LABEL, serviceById, waypointById, zoneById } from '../state/selectors';
 import { BarBand, Btn, Countdown, EvidenceTag, FreshTag, Section, SevMark, Src, verdictLabel } from '../components/primitives';
 import { analyzeIncident } from './analysis';
+import { DirectorPanel } from './DirectorPanel';
+import { api, useBridge } from '../state/bridge';
 
 interface Props { sel: Selection; setSel: (s: Selection) => void; clocks: ImpactClock[]; ranked: PriorityResult[] }
 
@@ -149,8 +151,12 @@ function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Pro
         </ul>
       </Section>
 
-      <Section title="Investigation" aside={<Btn kind="ghost" onClick={() => setShowAnalysis((v) => !v)}>{showAnalysis ? 'Hide' : 'Run analysis'}</Btn>}>
-        {showAnalysis ? <AnalysisBlock incident={inc} readings={readings} sessions={sessions} clocks={incClocks} /> : <p className="muted">Grounded analysis over stored evidence. Nemotron is not configured in this build; local rules run instead and say so.</p>}
+      <Section title="Simulation director" aside={<span className="pane-sub">NVIDIA Nemotron · engine tools</span>}>
+        <DirectorPanel incident={inc} />
+      </Section>
+
+      <Section title="Evidence summary" aside={<Btn kind="ghost" onClick={() => setShowAnalysis((v) => !v)}>{showAnalysis ? 'Hide' : 'Show'}</Btn>}>
+        {showAnalysis ? <AnalysisBlock incident={inc} readings={readings} sessions={sessions} clocks={incClocks} /> : <p className="muted">Cited observations and competing explanations from stored records (local rules).</p>}
       </Section>
 
       <div className="insp-actions">
@@ -172,6 +178,20 @@ function EvidenceBlock({ incident, readings, sessions }: { incident: Incident; r
   const metric = fixture?.metric ?? (assetId.startsWith('CRAH') ? 'vibration_mm_s' : 'inlet_temp_c');
   const installed = latestFor(readings.filter((r) => r.source === 'installed' || r.source === 'simulated'), fixture?.assetId ?? assetId, metric);
   const th = facility.thresholds.find((x) => x.metric === metric);
+
+  const bridge = useBridge();
+  const [reqState, setReqState] = useState<string>('');
+  // what the Rack Monitor can honestly measure for this incident (no accelerometer on this build)
+  const rigPoint = metric === 'inlet_temp_c' ? { assetId: fixture?.assetId ?? assetId, point: 'Front inlet · both beams' }
+    : metric === 'leak' || incident.rootAssetId === 'PIPE-L2' ? { assetId: fixture?.assetId ?? assetId, point: 'Floor · leak probe' } : null;
+  const requestScan = async () => {
+    if (!rigPoint) return;
+    try {
+      await api('/api/requests', { ...rigPoint, reason: `${incident.id}: ${incident.title}`, requestedBy: 'Priya Raman', incidentId: incident.id });
+      setReqState('sent');
+      dispatch({ type: 'append_event', event: makeEvent(t, { kind: 'task', actor: 'Priya Raman', summary: `Scan requested: ${rigPoint.assetId} — ${rigPoint.point}`, links: { assetId: rigPoint.assetId, incidentId: incident.id }, source: 'operator' }) });
+    } catch (e) { setReqState((e as Error).message); }
+  };
 
   const verify = () => {
     if (!fixture) return;
@@ -200,7 +220,7 @@ function EvidenceBlock({ incident, readings, sessions }: { incident: Incident; r
         return (
           <div key={s.id} className="ev-session">
             <div className="ev-row">
-              <span className="ev-k">Reference probe <Src s="reference_probe" /></span>
+              <span className="ev-k">{s.qualityFlags.includes('live_rig') ? <>Rack Monitor <Src s="live" /></> : s.qualityFlags.includes('simulated_rig') ? <>Rack Monitor <Src s="simulated" /></> : <>Reference probe <Src s="reference_probe" /></>}</span>
               {ref && th ? <BarBand value={ref.value} min={metric === 'vibration_mm_s' ? 0 : 15} max={metric === 'vibration_mm_s' ? 10 : 36} warn={th.warn} alarm={th.alarm} unit={ref.unit} /> : <span className="mono">{ref?.value} {ref?.unit}</span>}
               <span className="muted small mono">{s.probeId} · {s.point}</span>
             </div>
@@ -209,13 +229,24 @@ function EvidenceBlock({ incident, readings, sessions }: { incident: Incident; r
           </div>
         );
       })}
-      {fixture && sessions.length === 0 && (
+      {rigPoint && (
         <div className="ev-cta">
-          <Btn kind="primary" onClick={verify}>Record verification session</Btn>
-          <span className="muted small">Uses a labeled fixture reading for probe {fixture.probeId}. No sensor-to-app connection is implemented.</span>
+          <Btn kind={sessions.length ? 'secondary' : 'primary'} disabled={!bridge.online || reqState === 'sent'} onClick={requestScan}>
+            {reqState === 'sent' ? 'Scan requested' : sessions.length ? 'Request another scan' : 'Request scan'}
+          </Btn>
+          <span className="muted small">
+            {bridge.online ? <>Queues <span className="mono">{rigPoint.assetId}</span> · {rigPoint.point} on the scanner. The result lands here automatically.</> : 'Bridge offline — start it with npm run dev to scan with the Rack Monitor.'}
+            {reqState && reqState !== 'sent' && <span className="is-warn"> {reqState}</span>}
+          </span>
         </div>
       )}
-      {!fixture && <p className="muted small">No portable reference reading applies to this incident yet.</p>}
+      {!rigPoint && metric === 'vibration_mm_s' && <p className="muted small">The Rack Monitor build has no accelerometer, so vibration can't be checked with the rig.</p>}
+      {fixture && sessions.length === 0 && (
+        <div className="ev-cta">
+          <Btn kind="ghost" onClick={verify}>Use fixture reading instead</Btn>
+          <span className="muted small">Labeled fixture value for probe {fixture.probeId}, for demos without the rig.</span>
+        </div>
+      )}
     </div>
   );
 }
