@@ -207,7 +207,7 @@ export async function runLocalPlanner(input: DirectorInput, fallbackReason?: str
       const r = base.ranking.find((x) => x.incidentId === inc.id);
       await callExt(session, steps, ext, 'open_ticket', {
         incidentId: inc.id, severity: 'critical', title: `[${inc.id}] ${inc.title}`,
-        body: [`Corroborated by a Rack Monitor scan. Rank ${r?.rank ?? '—'} in ${base.id}.`, '', `Baseline (${base.id}): ${describe(base)}.`, '', `Next action: ${nextAction}`, '', '_Drafted by the Lookahead simulation director (local planner); approved by a person before filing._'].join('\n'),
+        body: [`Corroborated by a Rack Monitor scan. Rank ${r?.rank ?? '—'} in ${base.id}.`, '', `Baseline (${base.id}): ${describe(base)}.`, '', `Next action: ${nextAction}`, '', '_Drafted by the CenterGuard simulation director (local planner); approved by a person before filing._'].join('\n'),
       });
     }
   }

@@ -1,6 +1,6 @@
 import { Brand } from '../components/Brand';
 /**
- * Lookahead landing page (working name). Everything shown is an illustration built from the
+ * CenterGuard landing page. Everything shown is an illustration built from the
  * simulated DAL-1 / Hall A fixture — no customer, uptime, savings or accuracy claims.
  */
 import type { MouseEvent, ReactNode } from 'react';

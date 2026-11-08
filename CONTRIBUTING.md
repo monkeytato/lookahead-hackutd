@@ -1,4 +1,4 @@
-# Working on Lookahead together
+# Working on CenterGuard together
 
 Up to four people work in parallel. The repo is split so that slices rarely touch the same files.
 

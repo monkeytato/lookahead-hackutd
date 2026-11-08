@@ -1,11 +1,33 @@
 # Changelog
 
-All changes to Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
+All changes to CenterGuard, formerly Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
-## 2026-11-08 · Not committed: incomplete submissions, science-based predictions, audit
+## 2026-11-08 · The product is named CenterGuard
 
-Working tree only. Nothing is committed or pushed.
+- Every user-facing name is now CenterGuard:
+  - the brand in the top bar, phone, scanner and stage remote;
+  - the artifact page title;
+  - the default operator name in the log;
+  - the director's ticket footer, ticket label (`centerguard`) and weather User-Agent;
+  - the iOS display names ("CenterGuard"; the dial companion is "CenterGuard Dials") and the local-network prompts;
+  - README, CONTRIBUTING, this changelog's header, and the PDF cover.
+- Internal identifiers keep the old name, so nothing breaks: localStorage keys (`lookahead.*`), the BroadcastChannel name, the npm package name, the Xcode targets and schemes, the bundle IDs, the launch-config names, the repo `monkeytato/lookahead-hackutd`, and the `lookahead/` folder. The lowercase "lookahead" in the code (`lookaheadMin`, prediction minutes) is the ordinary word, not the brand.
+- Dated records stay as written: the audit, the product demo review, earlier changelog entries and `server/.data/store.json` history.
+- ✓ 290 tests passing · typecheck clean · lint 0 errors · artifact rebuilt.
+
+## 2026-11-08 · in `e68dfe3`: live views forecast from what has been observed
+
+- The stage remote, `#/present`, Facility, Gauges, the phone `#/m` and `/api/phone` (iOS) now take every prediction from a no-foreknowledge forecast (`src/state/liveForecast.ts`). That covers clocks, next loss, racks at risk, "if nothing changes", the +N ghost and fix savings. The script run still drives what actually happens: readings, water, fire, steps and auto-pause.
+- At T+0 of the riser leak every view shows "No observed fault · watching", not "Next loss: riser in 4 min · 48/48". Leak clocks appear from T+11, when the make-up flow mismatch is observed.
+- The forecast is memoised on the observation state, so a 60-minute riser playback costs 3 engine runs (about 120 ms in total). The `fixes.ts` forecast cache uses the same key.
+- The stage remote has a presenter-only list of scripted faults that can't be observed yet, with their published priors.
+- **Demo note:** on the Azure replay, restarting CH-1 at T+4 forecasts no saving. CH-2's trip is only observed at T+8.
+- ✓ 290 tests passing · typecheck clean · lint 0 errors · artifact rebuilt.
+
+## 2026-11-08 · `e68dfe3` + `c008588`: incomplete submissions, science-based predictions, audit
+
+Committed and pushed by Alex as `e68dfe3`, then merged with origin/main in `c008588`.
 
 **Incomplete report submission**
 - An outcome can now be submitted with checklist boxes unchecked. It still needs an owner and a note of at least 8 characters, and the operator confirms first.

@@ -1,4 +1,4 @@
-# XcodeGen spec for the Lookahead iPhone companion.
+# XcodeGen spec for the CenterGuard iPhone companion (target name: Lookahead).
 #   brew install xcodegen
 #   cd ios && xcodegen --spec Lookahead.yml   # writes Lookahead.xcodeproj (git-ignored)
 # (ios/project.yml is the separate LookaheadRemote app.)
@@ -32,12 +32,12 @@ targets:
     info:
       path: Lookahead/Info.plist
       properties:
-        CFBundleDisplayName: Lookahead
+        CFBundleDisplayName: CenterGuard Dials
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIApplicationSupportsIndirectInputEvents: true
         # The app talks plain HTTP to the laptop on the same Wi-Fi (npm run dev:lan).
-        NSLocalNetworkUsageDescription: Lookahead connects to the laptop running the operations dashboard on your Wi-Fi.
+        NSLocalNetworkUsageDescription: CenterGuard connects to the laptop running the operations dashboard on your Wi-Fi.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
           NSAllowsArbitraryLoads: true   # development build only: LAN IP addresses over http

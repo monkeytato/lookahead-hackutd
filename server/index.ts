@@ -1,5 +1,5 @@
 /**
- * Lookahead bridge — the only process that touches the Rack Monitor's serial port.
+ * CenterGuard bridge — the only process that touches the Rack Monitor's serial port.
  *
  *   Rack Monitor (USB, JSON lines @1 Hz) ─┐
  *                                         ├─► bridge ─► SSE /api/stream ─► dashboard, scanner app

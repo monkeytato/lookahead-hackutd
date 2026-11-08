@@ -30,7 +30,7 @@ targets:
       properties:
         CFBundleDisplayName: CenterGuard
         ITSAppUsesNonExemptEncryption: false
-        NSLocalNetworkUsageDescription: Connect to your laptop's LookaHead bridge to trigger demonstration warnings, view the portable sensor and coordinate incident tasks on your local network.
+        NSLocalNetworkUsageDescription: Connect to your laptop's CenterGuard bridge to trigger demonstration warnings, view the portable sensor and coordinate incident tasks on your local network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UILaunchScreen: {}

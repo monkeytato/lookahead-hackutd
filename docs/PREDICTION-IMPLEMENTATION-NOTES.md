@@ -75,3 +75,21 @@ Design (in progress, notes kept as I go):
   riser leak 3 engine runs (T+0, T+11 leak inferable, T+34 CRAH-2 observed), 141 ms in total, worst tick
   64 ms at T+11, cached tick 0.25 ms; OVH fire 2 runs / 25 ms; Azure chillers 3 runs / 22 ms; generator
   2 runs / 22 ms. `honestVisual` with the forecast 0.3–0.8 ms per tick (mostly the world's per-t visual).
+- 01:12: the external merge finished (c008588, someone else's commit); my files came through intact.
+  Re-run green: typecheck clean, 29 files / 290 tests, lint 0 errors.
+- Browser check (isolated `vite --mode artifact` on :4182, temporary launch config since removed),
+  riser leak, no console errors in fresh tabs:
+  T+0 `#/present` "Ready" + "no observed fault · watching"; `#/stage` "No observed fault · watching." and
+  the scripted-hypotheses list (CRAH-2 P ≈ 2.6e-6, PIPE-L2 P ≈ 8.7e-8, published rates);
+  `#/app/facility` "If nothing changes: no observed fault · watching"; `#/m` "No running clocks yet";
+  `#/app/gauges` A-11 "No loss from this alone". T+5 with +20 preview: "No observed fault · nothing to
+  forecast yet", no ghost water. T+11/15: leak clocks, "Rack loss in 29–33 min", stage offers "Close the
+  isolation valves · saves 48 racks"; after ordering it: "With your fixes 0 racks · 48 saved".
+  In-browser `liveForecast` over 301 ticks: riser 3 runs, 118 ms total, worst tick 65 ms at T+11, median
+  tick ≈ 0 ms; Azure 3 runs / 27 ms; OVH 2 runs / 14 ms; London 3 runs / 20 ms.
+- Forecast fix savings once observed: OVH T+4 suppress fire saves 48 racks; generator T+3 manual start
+  saves 48; Azure T+4 restart CH-1 saves 0 (CH-2's trip is only observed at T+8, so before then the
+  forecast honestly sees one chiller still running).
+- Not changed: `TopBar.tsx`, `controls.ts`, `mobile/derive.ts` (no prediction source in them; they read
+  what callers pass). `src/domain/telemetry` is a stub that ignores `run`; if it starts predicting, it
+  should take the store's `forecast`.

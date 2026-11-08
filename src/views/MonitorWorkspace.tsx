@@ -62,7 +62,7 @@ export function MonitorWorkspace({ view = 'operations' }: { view?: 'operations' 
   const measure = async () => {
     if (!issue) return; setScanBusy(true); setScanError('');
     try {
-      const r = await api<{ id: string }>('/api/scans/start', { assetId: issue.assetId, point: issue.kind === 'water' ? 'Floor / leak' : issue.kind === 'vibration' ? 'Vibration / fan housing' : 'Front inlet temperature', operator: 'Lookahead operator' });
+      const r = await api<{ id: string }>('/api/scans/start', { assetId: issue.assetId, point: issue.kind === 'water' ? 'Floor / leak' : issue.kind === 'vibration' ? 'Vibration / fan housing' : 'Front inlet temperature', operator: 'CenterGuard operator' });
       setScanId(r.id); setScanIssueId(issue.id);
     } catch (e) { setScanBusy(false); setScanError((e as Error).message); }
   };

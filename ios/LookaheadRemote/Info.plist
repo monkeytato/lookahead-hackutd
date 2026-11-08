@@ -28,7 +28,7 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to your laptop's LookaHead bridge to trigger demonstration warnings, view the portable sensor and coordinate incident tasks on your local network.</string>
+	<string>Connect to your laptop's CenterGuard bridge to trigger demonstration warnings, view the portable sensor and coordinate incident tasks on your local network.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

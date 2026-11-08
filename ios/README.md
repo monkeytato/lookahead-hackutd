@@ -5,7 +5,7 @@ This folder holds two separate SwiftUI apps:
 - **LookaheadRemote** (`ios/LookaheadRemote/`, spec `project.yml`, committed `LookaheadRemote.xcodeproj`): the incident-workflow controller that talks to `/api/workflow`.
 - **Lookahead** (`ios/Lookahead/`, spec `Lookahead.yml`): the read-mostly dial companion that talks to `/api/phone`.
 
-## LookaHead native iPhone controller
+## CenterGuard native iPhone controller
 
 A real SwiftUI app, not a web wrapper. Its Xcode project is `LookaheadRemote.xcodeproj`; regenerate with `xcodegen generate --spec ios/project.yml` from repository root if needed.
 
@@ -44,7 +44,7 @@ The new optional field `vibrating: true|false|null` is backward compatible. A sc
 
 Your current Arduino sketch must actually emit the expected fields. Human-readable Serial output needs a reviewed adapter before this app can consume it. Preserve the sketch and wiring until that is verified.
 
-## Lookahead (dial companion)
+## CenterGuard Dials (dial companion, target `Lookahead`)
 
 A small SwiftUI companion to the laptop dashboard. It shows the essentials and leaves the detail on the laptop:
 - minutes to the first rack loss, as one large dial;

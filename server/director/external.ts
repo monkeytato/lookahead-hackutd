@@ -30,7 +30,7 @@ export interface ExternalServices {
 
 /** Demo site location: the HackUTD venue, Richardson TX (the facility itself is simulated). */
 export const SITE = { name: 'DAL-1 (simulated) · Richardson, TX', lat: 32.9857, lon: -96.7502 };
-const UA = 'Lookahead-HackUTD-prototype (github.com/monkeytato/lookahead-hackutd)';
+const UA = 'CenterGuard-HackUTD-prototype (github.com/monkeytato/lookahead-hackutd)';
 
 /** Commands the director may propose. Only directions that reduce risk; never open a valve or disarm safety. */
 export const SAFE_RIG_COMMANDS = /^(valve close|flap close|auto on|fan (\d{1,2}|70) (\d{1,2}|70))$/;
@@ -195,7 +195,7 @@ export async function dispatchExternal(session: Session, ext: ExternalServices |
         const dup = ext.pendingActions().find((a) => a.kind === 'ticket' && a.incidentId === args.incidentId && a.status !== 'rejected' && a.status !== 'failed');
         if (dup) return svc({ ok: true, content: { actionId: dup.id, status: dup.status, duplicate: true }, summary: `ticket for ${args.incidentId} already ${dup.status} (${dup.id})` }, service);
         const severity = ['critical', 'warning', 'advisory'].includes(String(args.severity)) ? String(args.severity) : 'warning';
-        const a = ext.proposeAction({ kind: 'ticket', proposedBy, reason: `Ticket for ${args.incidentId}`, incidentId: args.incidentId, payload: { title, body, labels: ['lookahead', `severity:${severity}`, args.incidentId] } });
+        const a = ext.proposeAction({ kind: 'ticket', proposedBy, reason: `Ticket for ${args.incidentId}`, incidentId: args.incidentId, payload: { title, body, labels: ['centerguard', `severity:${severity}`, args.incidentId] } });
         return svc({ ok: true, content: { pendingApproval: true, actionId: a.id, destination: ext.ticketsConfigured ? 'GitHub Issues' : 'local record (GITHUB_TOKEN / TICKET_REPO not set)' }, summary: `drafted ticket "${title.slice(0, 60)}" → awaiting human approval (${a.id})` }, service);
       }
     }

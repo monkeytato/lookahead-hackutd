@@ -1,5 +1,5 @@
 /**
- * Rack Monitor ↔ Lookahead protocol (v1).
+ * Rack Monitor ↔ CenterGuard protocol (v1).
  *
  * Physical link: Arduino UNO R4 over USB serial, 115200 baud, one JSON object per line, ~1 Hz.
  * The firmware (hardware/rack_monitor) emits RigFrame lines and accepts RigCommand lines.

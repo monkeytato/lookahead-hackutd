@@ -51,7 +51,7 @@ export function StageRemote() {
     <div className="st-root">
       <header className="st-top">
         <div className="st-top-row">
-          <span className="st-brand">Lookahead <span className="st-brand-sub">stage remote</span></span>
+          <span className="st-brand">CenterGuard <span className="st-brand-sub">stage remote</span></span>
           <span className={`st-link st-link-${link}`} title={LINK_HINT[link]}>
             <span className="st-dot" aria-hidden="true" />{LINK_TEXT[link]}{others !== null ? ` · ${others} other screen${others === 1 ? '' : 's'}` : ''}
           </span>

@@ -55,7 +55,7 @@ export function MobileApp({ route }: { route: string }) {
       <ScanIngest />
       <header className="m-top">
         <div className="m-top-row">
-          <a className="m-brand" href="#/">Lookahead</a>
+          <a className="m-brand" href="#/">CenterGuard</a>
           <span className="m-site mono">DAL-1 · Hall A</span>
           <span className="m-sim" title={scenario.basis}>SIMULATED</span>
         </div>

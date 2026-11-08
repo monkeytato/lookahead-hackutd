@@ -47,7 +47,7 @@ export function ScanApp() {
   return (
     <div className="sc">
       <header className="sc-top">
-        <a href="#/app" className="sc-brand">Lookahead <span>Scan</span></a>
+        <a href="#/app" className="sc-brand">CenterGuard <span>Scan</span></a>
         <span className={`sc-dev sc-dev-${dev.kind}`} title={b.status?.device.firmware ? `firmware ${b.status.device.firmware}` : undefined}>
           <i aria-hidden="true" />{dev.text}{age != null && dev.kind !== 'off' && <em className="mono">{age < 1.5 ? 'now' : `${Math.round(age)} s`}</em>}
         </span>

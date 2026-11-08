@@ -1,5 +1,5 @@
 /**
- * Client for the Lookahead bridge (server/index.ts). One EventSource per tab.
+ * Client for the CenterGuard bridge (server/index.ts). One EventSource per tab.
  * When the bridge is not running the app keeps working on fixtures and says "Bridge offline".
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';

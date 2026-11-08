@@ -14,7 +14,7 @@ const tags = [
 if (!tags.some((t) => t.startsWith('<script'))) throw new Error('no module script found in dist-artifact/index.html');
 
 const page = [
-  '<title>Lookahead</title>',
+  '<title>CenterGuard</title>',
   '<meta name="description" content="Data-center operations prototype: verify warnings, rank incidents by time to impact, dispatch, hand off. Static demo, all data simulated.">',
   ...tags,
   '<div id="root"></div>',

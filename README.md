@@ -13,15 +13,15 @@ Facility-installed readings and injected alerts are demonstration data. Only com
 
 See [product review and walkthrough](docs/PRODUCT-DEMO-REVIEW.md) and [Freebuff continuation prompt](docs/FREEBUFF-CONTINUE.md) for design choices, the presentation script, verification and remaining environment blockers.
 
-# Lookahead — know which warning to trust, and what to fix first
+# CenterGuard — know which warning to trust, and what to fix first
 
 HackUTD 2026 · **Northmark Compute & Cloud: Keep the World Running**
-*Working name. A data-center operations prototype; facility data is simulated, and rack measurements come from the Rack Monitor rig.*
+*A data-center operations prototype; facility data is simulated, and rack measurements come from the Rack Monitor rig.*
 
 > Data center teams run around the clock, and a missed warning, an unclear handoff, or wrong
 > information at the wrong time can turn a small issue into a major outage.
 
-Lookahead is a time-to-impact and handoff tool, not a crystal ball:
+CenterGuard is a time-to-impact and handoff tool, not a crystal ball:
 
 - It turns a facility's dependency graph into **countdowns with ranges**.
 - It lets a technician **verify** a disputed reading with the Rack Monitor by holding a scan.

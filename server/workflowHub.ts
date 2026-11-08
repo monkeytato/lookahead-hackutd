@@ -50,7 +50,7 @@ export function createWorkflowHub(d: Deps) {
       return i.kind === 'water' ? { truth: 'real', before: ['sim spill'], after: ['sim dry'] } : { truth: i.kind === 'sensor' ? 'sensor_fault' : 'real', before: [], after: [] };
     },
     async command(body: Record<string, unknown>) {
-      const actor = typeof body.actor === 'string' ? body.actor : 'Lookahead operator';
+      const actor = typeof body.actor === 'string' ? body.actor : 'CenterGuard operator';
       const issueId = typeof body.issueId === 'string' ? body.issueId : '';
       switch (body.type) {
         case 'simulate_error':

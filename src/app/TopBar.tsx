@@ -61,7 +61,7 @@ export function TopBar({ section, embedded }: { section: string; embedded?: bool
 
   return (
     <header className={`bar${embedded ? ' bar-embedded' : ''}`} role={embedded ? 'toolbar' : 'banner'} aria-label={embedded ? 'Simulation controls' : undefined}>
-      {!embedded && <a className="bar-brand" href="#/">Lookahead</a>}
+      {!embedded && <a className="bar-brand" href="#/">CenterGuard</a>}
 
       <div className={`bar-status is-${worst}`} title={disaster ? scenario.basis : 'DAL-1 · Hall A (simulated)'}>
         <span className="bar-dot" aria-hidden="true" />
