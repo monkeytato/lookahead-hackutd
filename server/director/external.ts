@@ -48,7 +48,7 @@ export const EXTERNAL_TOOL_DEFS = [
     type: 'function',
     function: {
       name: 'get_rig_status',
-      description: 'Latest frame and recent root-cause events from the Rack Monitor rig on USB (acoustic inlet/outlet temperatures, reference probe, reservoir and floor water, pack voltage, flap/valve state, firmware flags). Use it to check whether the rig is trustworthy (sensor_fault, ref_disagree) before relying on a scan.',
+      description: 'Latest frame and recent root-cause events from the Rack Monitor rig on USB (inlet temperature probe, ultrasonic vibration on each exhaust fan, drip-tray water, pack voltage, flap/valve state, firmware flags). Use it to check whether the rig is trustworthy (sensor_fault, timeout, obstructed) before relying on a scan.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -64,7 +64,7 @@ export const EXTERNAL_TOOL_DEFS = [
     type: 'function',
     function: {
       name: 'propose_rig_action',
-      description: 'Propose a command to the Rack Monitor rig. It is NOT executed: it waits for a person to approve it on the dashboard. Allowed: "valve close", "flap close", "auto on", "fan A B" (0–70 %). Only propose after evidence supports it (e.g. a wet floor scan with the valve open).',
+      description: 'Propose a command to the Rack Monitor rig. It is NOT executed: it waits for a person to approve it on the dashboard. Allowed: "valve close", "flap close", "auto on", "fan A B" (0–70 %). Only propose after evidence supports it (e.g. a wet drip-tray scan with the valve open).',
       parameters: { type: 'object', properties: { cmd: { type: 'string' }, reason: { type: 'string' }, incidentId: { type: 'string' } }, required: ['cmd', 'reason'] },
     },
   },
@@ -161,12 +161,12 @@ export async function dispatchExternal(session: Session, ext: ExternalServices |
         const f = st.frame;
         const content = {
           source: f.source, mode: st.mode, device: f.dev, firmware: f.fw, at: f.at,
-          inlet_top_c: f.inlet_top_c, inlet_bottom_c: f.inlet_bottom_c, outlet_c: f.outlet_c, ref_c: f.ref_c,
-          reservoir_raw: f.reservoir_raw, floor_raw: f.floor_raw, pack_v: f.pack_v, flap: f.flap, valve: f.valve, fan_pct: f.fan_pct, auto: f.auto, flags: f.flags,
+          temp_c: f.temp_c, vib_fan_a_mm_s: f.vib?.fan_a?.vel_mm_s ?? null, vib_fan_b_mm_s: f.vib?.fan_b?.vel_mm_s ?? null,
+          drip_raw: f.drip_raw, drip_wet: f.drip_raw >= 120, pack_v: f.pack_v, flap: f.flap, valve: f.valve, fan_pct: f.fan_pct, auto: f.auto, flags: f.flags,
           recentEvents: st.events.slice(-5).map((e) => ({ kind: e.kind, confidence: e.confidence, rootCause: e.rootCause, route: e.route, at: e.at })),
-          trust: f.flags.some((x) => /ref_disagree|timeout|obstructed|uncalibrated/.test(x)) ? 'check the rig before trusting its scans' : 'rig self-checks clear',
+          trust: f.flags.some((x) => /temp_missing|temp_invalid|timeout|noisy|obstructed|uncalibrated/.test(x)) ? 'check the rig before trusting its scans' : 'rig self-checks clear',
         };
-        return svc({ ok: true, content, summary: `${f.source === 'live' ? 'LIVE' : 'SIMULATED'} rig ${f.dev}: inlet ${f.inlet_bottom_c ?? '—'} °C, floor ${f.floor_raw >= 120 ? 'wet' : 'dry'}, valve ${f.valve}, flags ${f.flags.join(', ') || 'none'}; ${content.trust}` }, service);
+        return svc({ ok: true, content, summary: `${f.source === 'live' ? 'LIVE' : 'SIMULATED'} rig ${f.dev}: inlet ${f.temp_c ?? '—'} °C, vib ${f.vib?.fan_a?.vel_mm_s ?? '—'}/${f.vib?.fan_b?.vel_mm_s ?? '—'} mm/s, tray ${f.drip_raw >= 120 ? 'wet' : 'dry'}, valve ${f.valve}, flags ${f.flags.join(', ') || 'none'}; ${content.trust}` }, service);
       }
       case 'request_scan': {
         const assetId = typeof args.assetId === 'string' ? args.assetId : '';

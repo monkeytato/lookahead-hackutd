@@ -18,8 +18,8 @@ export const MAX_RUNS_PER_SESSION = 10;
 
 const EVIDENCE: Evidence[] = ['unverified', 'corroborated_abnormal', 'measurement_disagreement', 'inconclusive', 'not_corroborated_in_session'];
 const METRICS: Metric[] = ['inlet_temp_c', 'humidity_rh', 'dew_point_c', 'vibration_mm_s', 'leak', 'ups_autonomy_min', 'load_kw', 'flow_lpm', 'pressure_kpa', 'battery_temp_c', 'supply_temp_c'];
-/** What the Rack Monitor rig can actually measure: acoustic inlet/outlet air temperature + reference probe, floor water. */
-export const RIG_METRICS: Metric[] = ['inlet_temp_c', 'leak'];
+/** What the Rack Monitor rig can actually measure: inlet air temperature (DS18B20), fan-mount vibration (ultrasonic, indicative), drip-tray liquid. */
+export const RIG_METRICS: Metric[] = ['inlet_temp_c', 'vibration_mm_s', 'leak'];
 const UNCERTAIN: Evidence[] = ['unverified', 'inconclusive', 'measurement_disagreement'];
 
 const assetById = new Map<ID, Asset>(facility.assets.map((a) => [a.id, a]));
@@ -334,11 +334,12 @@ export function defaultMetricFor(session: Session, assetId: ID): Metric {
 export function scanPoint(assetId: ID, metric: Metric): string {
   const a = assetById.get(assetId)!;
   if (metric === 'leak') {
-    if (a.type === 'battery' || a.zoneId === 'Z-BATT') return 'Battery room threshold, floor (floor water sensor)';
-    if (a.type === 'pipe') return `Corridor floor below ${a.id} (floor water sensor)`;
-    return `Floor at ${a.id} footprint (floor water sensor)`;
+    if (a.type === 'battery' || a.zoneId === 'Z-BATT') return 'Drip tray at battery room threshold (water sensor)';
+    if (a.type === 'pipe') return `Drip tray on corridor floor below ${a.id} (water sensor)`;
+    return `Drip tray at ${a.id} footprint (water sensor)`;
   }
-  if (metric === 'inlet_temp_c') return `${a.id} front inlet, both beams + reference probe at sensor height`;
+  if (metric === 'inlet_temp_c') return `${a.id} front inlet, temperature probe at sensor height`;
+  if (metric === 'vibration_mm_s') return `Fan mount on ${a.id}, ultrasonic sensors aimed at the housing`;
   return `${a.id} ${metricLabel(metric)} measurement point`;
 }
 
@@ -351,7 +352,7 @@ function scanSummary(s: Scan): string {
 }
 
 function relevantScan(session: Session, assetId: ID, metric: Metric): Scan | undefined {
-  const channels = metric === 'leak' ? ['floor_wet'] : metric === 'inlet_temp_c' ? ['inlet_top_c', 'inlet_bottom_c', 'ref_c'] : [];
+  const channels = metric === 'leak' ? ['drip_wet'] : metric === 'inlet_temp_c' ? ['temp_c'] : metric === 'vibration_mm_s' ? ['vib_a_mm_s', 'vib_b_mm_s'] : [];
   return [...session.input.scans].reverse().find((s) => s.assetId === assetId && s.status === 'complete' && channels.some((c) => c in (s.channels ?? {})));
 }
 

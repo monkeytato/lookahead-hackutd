@@ -34,14 +34,15 @@ describe('local planner on scn-riser-leak at T+25', () => {
     expect(rec.nextScan?.assetId).toBe('BATT-B');
     expect(rec.nextScan?.holdS).toBe(10);
     expect(rec.nextScan?.point).toMatch(/threshold/i);
-    const wet = res.runs['run-2'];
-    const dry = res.runs['run-3'];
+    // CRAH-2 vibration is rig-measurable too now, so it is evaluated first (run-2/3); BATT-B is run-4/5
+    const wet = res.runs['run-4'];
+    const dry = res.runs['run-5'];
     expect(wet.firstRackLoss?.inMin).toBe(19); // UPS-A wet at T+44 with UPS-B already wet → racks lose both feeds
     expect(dry.firstRackLoss).toBeNull();
-    expect(rec.nextScan?.reason).toContain('run-2');
+    expect(rec.nextScan?.reason).toContain('run-4');
     expect(rec.nextScan?.reason).toContain('19 min');
     expect(rec.nextAction).toMatch(/irreversible/);
-    expect(rec.nextAction).toMatch(/CRAH-2/); // vibration is not rig-measurable → runbook check
+    expect(rec.nextAction).toMatch(/CRAH-2/); // top-ranked incident is named
     expect(res.warnings).toEqual([]);
   });
 

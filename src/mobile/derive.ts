@@ -4,7 +4,8 @@
  */
 import type { ImpactClock, Incident, Task, TaskStatus } from '../domain/types';
 import type { StampedFrame } from '../domain/rig/protocol';
-import { DEFAULT_FLOOR_WET_RAW } from '../domain/rig/scan';
+import { DEFAULT_DRIP_WET_RAW } from '../domain/rig/scan';
+import { VIB_WARN_MM_S } from '../domain/rig/diagnose';
 
 /** Countdown text for a clock at scrub time `now`: "T−12" + "8–19", "LOST", or ">60". */
 export function clockText(clock: ImpactClock, now: number, horizon = 60): { main: string; range: string | null; lost: boolean } {
@@ -60,26 +61,27 @@ export function openIncidents(incidents: Incident[]): Incident[] {
 
 export interface RigTile { key: string; label: string; value: string; unit: string; sub: string; abnormal: boolean; missing: boolean }
 
-/** Live Rack Monitor tiles. Null channels render "—" and say why; wet floor is the only abnormal flag. */
-export function rigTiles(f: StampedFrame, floorWetRaw = DEFAULT_FLOOR_WET_RAW): RigTile[] {
-  const t = (key: string, label: string, v: number | null, sub: string): RigTile => ({
-    key, label, value: v == null ? '—' : v.toFixed(1), unit: '°C', sub, abnormal: false, missing: v == null,
-  });
-  const wet = f.floor_raw >= floorWetRaw;
+/** Live Rack Monitor tiles. Null channels render "—" and say why; a wet tray and vibration over the warn line are the abnormal flags. */
+export function rigTiles(f: StampedFrame, dripWetRaw = DEFAULT_DRIP_WET_RAW): RigTile[] {
+  const wet = f.drip_raw >= dripWetRaw;
+  const vib = (key: string, label: string, fan: 'fan_a' | 'fan_b'): RigTile => {
+    const v = f.vib?.[fan]?.vel_mm_s ?? null;
+    const hz = f.vib?.[fan]?.freq_hz;
+    return { key, label, value: v == null ? '—' : v.toFixed(1), unit: v == null ? '' : 'mm/s', sub: v == null ? 'no trustworthy value' : hz ? `${hz.toFixed(0)} Hz · ultrasonic` : 'still', abnormal: v != null && v >= VIB_WARN_MM_S, missing: v == null };
+  };
   return [
-    t('inlet_top', 'Inlet top', f.inlet_top_c, `beam ${Math.round(f.beam_age_s.inlet_top)} s`),
-    t('inlet_bottom', 'Inlet bottom', f.inlet_bottom_c, `beam ${Math.round(f.beam_age_s.inlet_bottom)} s`),
-    t('outlet', 'Outlet', f.outlet_c, `beam ${Math.round(f.beam_age_s.outlet)} s`),
-    t('ref', 'Reference', f.ref_c, f.ref_c == null ? 'not fitted' : 'DS18B20'),
-    { key: 'floor', label: 'Floor probe', value: wet ? 'WET' : 'Dry', unit: '', sub: `raw ${f.floor_raw}`, abnormal: wet, missing: false },
+    { key: 'temp', label: 'Inlet air', value: f.temp_c == null ? '—' : f.temp_c.toFixed(1), unit: f.temp_c == null ? '' : '°C', sub: f.temp_c == null ? 'probe missing' : 'DS18B20', abnormal: false, missing: f.temp_c == null },
+    vib('vib_a', 'Fan A vibration', 'fan_a'),
+    vib('vib_b', 'Fan B vibration', 'fan_b'),
+    { key: 'drip', label: 'Drip tray', value: wet ? 'WET' : 'Dry', unit: '', sub: `raw ${f.drip_raw}`, abnormal: wet, missing: false },
     { key: 'pack', label: 'Rack power', value: f.pack_v == null ? '—' : f.pack_v.toFixed(2), unit: f.pack_v == null ? '' : 'V', sub: f.pack_v == null ? 'divider not fitted' : '6×AA pack', abnormal: false, missing: f.pack_v == null },
   ];
 }
 
-/** Outlet − mean(inlet top, inlet bottom), only when all three beams report. */
-export function deltaT(f: StampedFrame): number | null {
-  if (f.outlet_c == null || f.inlet_top_c == null || f.inlet_bottom_c == null) return null;
-  return +(f.outlet_c - (f.inlet_top_c + f.inlet_bottom_c) / 2).toFixed(1);
+/** Larger of the two fan vibration channels (mm/s), null when neither reports. */
+export function maxVib(f: StampedFrame): number | null {
+  const vs = [f.vib?.fan_a?.vel_mm_s, f.vib?.fan_b?.vel_mm_s].filter((v): v is number => v != null && Number.isFinite(v));
+  return vs.length ? +Math.max(...vs).toFixed(1) : null;
 }
 
 /**

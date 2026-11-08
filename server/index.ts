@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { SerialPort } from 'serialport';
 import { ReadlineParser } from '@serialport/parser-readline';
 import {
-  BAUD, MIN_HOLD_S, TARGET_HOLD_S,
+  BAUD, MIN_HOLD_S, RIG_CMD_RE, SIM_CMD_RE, TARGET_HOLD_S,
   type BridgeStatus, type RigEvent, type RigFrame, type Scan, type ScanRequest, type StampedFrame,
 } from '../src/domain/rig/protocol';
 import { SimRig } from '../src/domain/rig/simDevice';
@@ -104,7 +104,7 @@ function ingest(frame: RigFrame, source: StampedFrame['source']) {
   try {
     const fresh = diagnose(window, store.events.slice(-50), stamped.at);
     for (const ev of fresh) { store.events.push(ev); broadcast('rig_event', ev); }
-    // confirm earlier fixes (flap closed → top inlet recovered; valve closed → reservoir stopped dropping)
+    // confirm earlier fixes (flap closed → inlet fell; valve closed → tray stopped wetting)
     const confirmed = followUp(window, store.events.slice(-50));
     for (const ev of confirmed) {
       const i = store.events.findIndex((x) => x.id === ev.id);
@@ -117,7 +117,7 @@ function ingest(frame: RigFrame, source: StampedFrame['source']) {
 
 function isFrame(x: unknown): x is RigFrame {
   const f = x as RigFrame;
-  return !!f && f.v === 1 && typeof f.dev === 'string' && typeof f.seq === 'number' && Array.isArray(f.flags);
+  return !!f && f.v === 2 && typeof f.dev === 'string' && typeof f.seq === 'number' && Array.isArray(f.flags);
 }
 
 // ---------------------------------------------------------------- device
@@ -182,8 +182,8 @@ async function watchDevice() {
   setInterval(tick, 5000); // hot-plug: switch from sim to the real rig when it appears
 }
 
-const RIG_CMD = /^(flap (open|close)|valve (open|close)|fan \d{1,3} \d{1,3}|auto (on|off)|cal|ping)$/;
-const SIM_CMD = /^sim (power (off|on)|fault (inlet_top|clear)|heat (high|normal)|fan_a (fail|ok)|block outlet|unblock|supply (loss|ok)|leak (remote|stop)|spill|dry)$/;
+const RIG_CMD = RIG_CMD_RE;
+const SIM_CMD = SIM_CMD_RE;
 
 function sendCommand(raw: string): { ok: boolean; reply: string } {
   const cmd = raw.trim().toLowerCase();

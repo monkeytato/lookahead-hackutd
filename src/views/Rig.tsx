@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { RigEvent, StampedFrame } from '../domain/rig/protocol';
+import { SIM_COMMANDS, type RigEvent, type StampedFrame } from '../domain/rig/protocol';
 import { api, deviceLabel, useBridge, useFrameAge } from '../state/bridge';
 import { Btn } from '../components/primitives';
 
@@ -45,19 +45,17 @@ export function RigView() {
       {f && (
         <div className="rig-grid">
           <section className="rig-card rig-chart-card">
-            <h2>Air temperature from sound <span className="muted small">acoustic beams vs DS18B20 reference · last 3 min</span></h2>
-            <TempChart frames={b.frames} />
+            <h2>Fan vibration from ultrasonic distance <span className="muted small">indicative mm/s per fan · inlet probe · last 3 min</span></h2>
+            <TrendChart frames={b.frames} />
           </section>
           <section className="rig-card">
             <h2>Now</h2>
             <table className="readings">
               <tbody>
-                <Row k="Inlet top" v={f.inlet_top_c} u="°C" sub={`beam ${Math.round(f.beam_age_s.inlet_top)} s · ${f.echo_us.inlet_top?.toFixed(0) ?? '—'} µs`} />
-                <Row k="Inlet bottom" v={f.inlet_bottom_c} u="°C" sub={`beam ${Math.round(f.beam_age_s.inlet_bottom)} s · ${f.echo_us.inlet_bottom?.toFixed(0) ?? '—'} µs`} />
-                <Row k="Outlet" v={f.outlet_c} u="°C" sub={`beam ${Math.round(f.beam_age_s.outlet)} s · ${f.echo_us.outlet?.toFixed(0) ?? '—'} µs`} />
-                <Row k="Reference" v={f.ref_c} u="°C" sub={f.ref_c == null ? 'not fitted' : 'DS18B20'} />
-                <Row k="Reservoir" v={f.reservoir_raw} u="raw" sub="A0" digits={0} />
-                <Row k="Floor" v={f.floor_raw} u="raw" sub={f.floor_raw >= 120 ? 'WET' : 'dry'} digits={0} />
+                <Row k="Inlet air" v={f.temp_c} u="°C" sub={f.temp_c == null ? 'probe missing' : 'DS18B20 · D11'} />
+                <Row k="Fan A vibration" v={f.vib?.fan_a?.vel_mm_s ?? null} u="mm/s" sub={vibSub(f, 'fan_a')} />
+                <Row k="Fan B vibration" v={f.vib?.fan_b?.vel_mm_s ?? null} u="mm/s" sub={vibSub(f, 'fan_b')} />
+                <Row k="Drip tray" v={f.drip_raw} u="raw" sub={f.drip_raw >= 120 ? 'WET' : 'dry'} digits={0} />
                 <Row k="Rack power" v={f.pack_v} u="V" sub={f.pack_v == null ? 'divider not fitted' : '6×AA'} />
                 <tr><th>Actuators</th><td colSpan={2} className="mono">flap {f.flap} · valve {f.valve} · fans {f.fan_pct.join('/')}% · auto {f.auto ? 'on' : 'off'}</td></tr>
                 {f.flags.length > 0 && <tr><th>Flags</th><td colSpan={2} className="is-warn mono">{f.flags.join(', ')}</td></tr>}
@@ -76,7 +74,7 @@ export function RigView() {
             </div>
             <div className="rig-cmds">
               <span className="rig-cmd-k">Simulated only</span>
-              {['sim power off', 'sim power on', 'sim fault inlet_top', 'sim fault clear', 'sim heat high', 'sim heat normal', 'sim fan_a fail', 'sim fan_a ok', 'sim supply loss', 'sim supply ok', 'sim leak remote', 'sim leak stop', 'sim spill', 'sim dry', 'sim block outlet', 'sim unblock'].map((c) => <Btn key={c} kind="ghost" disabled={!sim} onClick={() => cmd(c)}>{c.replace('sim ', '')}</Btn>)}
+              {SIM_COMMANDS.map((c) => <Btn key={c} kind="ghost" disabled={!sim} onClick={() => cmd(c)}>{c.replace('sim ', '')}</Btn>)}
             </div>
             {reply && <p className="mono small muted">{reply}</p>}
             <p className="muted small">With auto on, the rig closes the flap and the valve itself — on the Arduino, so it still works if the laptop dies.</p>
@@ -90,9 +88,10 @@ export function RigView() {
         <tbody>
           {[...b.scans].reverse().slice(0, 20).map((s) => {
             const c = s.channels;
-            const key = s.point.startsWith('Floor') && c.floor_wet ? (c.floor_wet.mean >= 0.5 ? 'WET' : 'dry')
-              : c.inlet_bottom_c ? `${(((c.inlet_top_c?.mean ?? c.inlet_bottom_c.mean) + c.inlet_bottom_c.mean) / 2).toFixed(2)} °C inlet`
-              : c.outlet_c ? `${c.outlet_c.mean.toFixed(2)} °C outlet` : '—';
+            const vibs = [c.vib_a_mm_s?.mean, c.vib_b_mm_s?.mean].filter((v): v is number => v != null);
+            const key = s.point.startsWith('Drip') && c.drip_wet ? (c.drip_wet.mean >= 0.5 ? 'WET' : 'dry')
+              : s.point.startsWith('Fan') && vibs.length ? `${Math.max(...vibs).toFixed(2)} mm/s fan`
+              : c.temp_c ? `${c.temp_c.mean.toFixed(2)} °C inlet` : '—';
             return (
               <tr key={s.id}>
                 <td className="mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
@@ -138,14 +137,19 @@ function Events({ events }: { events: RigEvent[] }) {
   );
 }
 
-/** Monochrome line chart: solid = acoustic beams, dashed blue = reference. Direct labels, no legend box. */
-function TempChart({ frames }: { frames: StampedFrame[] }) {
+function vibSub(f: StampedFrame, fan: 'fan_a' | 'fan_b'): string {
+  const v = f.vib?.[fan];
+  if (!v || v.vel_mm_s == null) return 'no trustworthy value';
+  return `${((v.disp_mm ?? 0) * 1000).toFixed(0)} µm RMS${v.freq_hz ? ` · ${v.freq_hz.toFixed(0)} Hz` : ' · still'} · ${v.n} pings`;
+}
+
+/** Monochrome line chart: solid = fan vibration (mm/s), dashed blue = inlet probe (°C, own scale folded in). Direct labels, no legend box. */
+function TrendChart({ frames }: { frames: StampedFrame[] }) {
   const data = frames.slice(-180);
   const series = useMemo(() => [
-    { key: 'Outlet', get: (f: StampedFrame) => f.outlet_c, cls: 'ln-out' },
-    { key: 'Inlet top', get: (f: StampedFrame) => f.inlet_top_c, cls: 'ln-top' },
-    { key: 'Inlet bottom', get: (f: StampedFrame) => f.inlet_bottom_c, cls: 'ln-bot' },
-    { key: 'Reference', get: (f: StampedFrame) => f.ref_c, cls: 'ln-ref' },
+    { key: 'Fan A mm/s', get: (f: StampedFrame) => f.vib?.fan_a?.vel_mm_s ?? null, cls: 'ln-out' },
+    { key: 'Fan B mm/s', get: (f: StampedFrame) => f.vib?.fan_b?.vel_mm_s ?? null, cls: 'ln-top' },
+    { key: 'Inlet °C', get: (f: StampedFrame) => f.temp_c, cls: 'ln-ref' },
   ], []);
   const W = 640, H = 220, L = 36, R = 96, T = 10, B = 22;
   const vals = data.flatMap((f) => series.map((s) => s.get(f))).filter((v): v is number => v != null);
@@ -162,7 +166,7 @@ function TempChart({ frames }: { frames: StampedFrame[] }) {
   }).sort((a, b) => a.y - b.y);
   for (let i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 13);
   return (
-    <svg className="rig-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Acoustic beam temperatures and reference probe over the last three minutes">
+    <svg className="rig-chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Fan vibration and inlet temperature over the last three minutes">
       {ticks.map((v) => (
         <g key={v}>
           <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="grid" />

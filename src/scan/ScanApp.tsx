@@ -4,27 +4,26 @@ import { MIN_HOLD_S, TARGET_HOLD_S, type Scan, type ScanChannel, type ScanReques
 import { api, deviceLabel, useBridge, useFrameAge } from '../state/bridge';
 import './scan.css';
 
-/** Measurement points the rig can honestly take. No accelerometer on this build → no vibration point. */
+/** Measurement points the rig can take: inlet probe, ultrasonic fan-mount vibration, drip tray. */
 const POINTS = [
-  { id: 'inlet', label: 'Front inlet', point: 'Front inlet · both beams', channels: ['inlet_top_c', 'inlet_bottom_c', 'ref_c'] as ScanChannel[] },
-  { id: 'outlet', label: 'Rear outlet', point: 'Rear outlet · outlet beam', channels: ['outlet_c', 'delta_t_c'] as ScanChannel[] },
-  { id: 'floor', label: 'Floor / leak', point: 'Floor · leak probe', channels: ['floor_wet', 'reservoir_pct'] as ScanChannel[] },
+  { id: 'inlet', label: 'Front inlet', point: 'Front inlet · temperature probe', channels: ['temp_c'] as ScanChannel[] },
+  { id: 'fan', label: 'Fan mount', point: 'Fan mount · ultrasonic vibration', channels: ['vib_a_mm_s', 'vib_b_mm_s', 'disp_a_mm', 'disp_b_mm'] as ScanChannel[] },
+  { id: 'drip', label: 'Drip tray', point: 'Drip tray · water sensor', channels: ['drip_wet'] as ScanChannel[] },
 ] as const;
 type PointId = (typeof POINTS)[number]['id'];
 
-const TILES: { ch: ScanChannel; label: string; unit: string; get: (f: StampedFrame) => number | null; beam?: 'inlet_top' | 'inlet_bottom' | 'outlet' }[] = [
-  { ch: 'inlet_top_c', label: 'Inlet top', unit: '°C', get: (f) => f.inlet_top_c, beam: 'inlet_top' },
-  { ch: 'inlet_bottom_c', label: 'Inlet bottom', unit: '°C', get: (f) => f.inlet_bottom_c, beam: 'inlet_bottom' },
-  { ch: 'ref_c', label: 'Reference probe', unit: '°C', get: (f) => f.ref_c },
-  { ch: 'outlet_c', label: 'Outlet', unit: '°C', get: (f) => f.outlet_c, beam: 'outlet' },
-  { ch: 'delta_t_c', label: 'ΔT outlet − inlet', unit: '°C', get: (f) => { const ins = [f.inlet_top_c, f.inlet_bottom_c].filter((v): v is number => v != null); return f.outlet_c != null && ins.length ? f.outlet_c - ins.reduce((a, b) => a + b, 0) / ins.length : null; } },
-  { ch: 'reservoir_pct', label: 'Reservoir', unit: '%', get: (f) => Math.min(100, Math.max(0, (f.reservoir_raw / 600) * 100)) },
-  { ch: 'floor_wet', label: 'Floor probe', unit: '', get: (f) => f.floor_raw },
+const TILES: { ch: ScanChannel; label: string; unit: string; get: (f: StampedFrame) => number | null; fan?: 'fan_a' | 'fan_b' }[] = [
+  { ch: 'temp_c', label: 'Inlet air', unit: '°C', get: (f) => f.temp_c },
+  { ch: 'vib_a_mm_s', label: 'Fan A vibration', unit: 'mm/s', get: (f) => f.vib?.fan_a?.vel_mm_s ?? null, fan: 'fan_a' },
+  { ch: 'vib_b_mm_s', label: 'Fan B vibration', unit: 'mm/s', get: (f) => f.vib?.fan_b?.vel_mm_s ?? null, fan: 'fan_b' },
+  { ch: 'disp_a_mm', label: 'Fan A wobble', unit: 'µm', get: (f) => (f.vib?.fan_a?.disp_mm == null ? null : f.vib.fan_a.disp_mm * 1000), fan: 'fan_a' },
+  { ch: 'disp_b_mm', label: 'Fan B wobble', unit: 'µm', get: (f) => (f.vib?.fan_b?.disp_mm == null ? null : f.vib.fan_b.disp_mm * 1000), fan: 'fan_b' },
+  { ch: 'drip_wet', label: 'Drip tray', unit: '', get: (f) => f.drip_raw },
   { ch: 'pack_v', label: 'Rack power', unit: 'V', get: (f) => f.pack_v },
 ];
 
-const scanTargets = assets.filter((a) => ['rack', 'battery', 'ups', 'crah', 'pdu', 'cdu', 'pipe'].includes(a.type));
-const defaultPoint = (assetId: string): PointId => (/^(BATT|UPS|PIPE)/.test(assetId) ? 'floor' : 'inlet');
+const scanTargets = assets.filter((a) => ['rack', 'battery', 'ups', 'crah', 'pdu', 'cdu', 'pipe', 'pump'].includes(a.type));
+const defaultPoint = (assetId: string): PointId => (/^(BATT|UPS|PIPE)/.test(assetId) ? 'drip' : /^(CRAH|P-)/.test(assetId) ? 'fan' : 'inlet');
 
 export function ScanApp() {
   const b = useBridge();
@@ -110,27 +109,27 @@ function LiveGrid({ frames, latest, focus }: { frames: StampedFrame[]; latest: S
   const ordered = [...TILES].sort((a, b) => Number(focus.includes(b.ch)) - Number(focus.includes(a.ch)));
   return (
     <section className="sc-sec" aria-label="Live sensor values">
-      <h2>Live <span className="sc-h-note">1 frame / s · acoustic beams refresh every ~5 s</span></h2>
+      <h2>Live <span className="sc-h-note">1 frame / s · vibration over a ~4 s window</span></h2>
       <div className="sc-grid">
         {ordered.map((t) => {
           const v = latest ? t.get(latest) : null;
-          const beamAge = latest && t.beam ? latest.beam_age_s[t.beam] : null;
+          const hz = latest && t.fan ? latest.vib?.[t.fan]?.freq_hz ?? null : null;
           const isFocus = focus.includes(t.ch);
-          const floor = t.ch === 'floor_wet';
+          const floor = t.ch === 'drip_wet';
           const wet = floor && v != null && v >= 120;
-          const flagged = latest?.flags.some((fl) => t.beam && fl.startsWith(t.beam));
+          const flagged = latest?.flags.some((fl) => t.fan && fl.startsWith(t.fan));
           return (
             <div key={t.ch} className={`sc-tile ${isFocus ? 'is-focus' : ''} ${v == null ? 'is-null' : ''} ${wet ? 'is-wet' : ''}`}>
               <div className="sc-tile-k">{t.label}</div>
               <div className="sc-tile-v mono">
-                {v == null ? '—' : floor ? (wet ? 'WET' : 'Dry') : v.toFixed(t.unit === '%' ? 0 : 1)}
+                {v == null ? '—' : floor ? (wet ? 'WET' : 'Dry') : v.toFixed(t.unit === 'µm' ? 0 : 1)}
                 {v != null && !floor && <small>{t.unit}</small>}
               </div>
               <Spark values={recent.map((f) => t.get(f))} />
               <div className="sc-tile-sub">
-                {v == null ? (t.ch === 'ref_c' ? 'probe not fitted' : t.ch === 'pack_v' ? 'divider not fitted' : 'no trustworthy value') :
-                  floor ? `raw ${v}` : beamAge != null ? `beam ${Math.round(beamAge)} s ago` : t.ch === 'ref_c' && latest?.inlet_bottom_c != null ? `Δ vs bottom beam ${(latest.inlet_bottom_c - v).toFixed(1)}` : ' '}
-                {flagged && <span className="sc-flag">check beam</span>}
+                {v == null ? (t.ch === 'temp_c' ? 'probe missing' : t.ch === 'pack_v' ? 'divider not fitted' : 'no trustworthy value') :
+                  floor ? `raw ${v}` : hz ? `${hz.toFixed(0)} Hz` : t.fan ? 'still' : ' '}
+                {flagged && <span className="sc-flag">check sensor</span>}
               </div>
             </div>
           );
@@ -257,8 +256,9 @@ function HoldToScan(props: { disabled: boolean; disabledReason: string; assetId:
 }
 
 const CH_LABEL: Record<ScanChannel, string> = {
-  inlet_top_c: 'Inlet top', inlet_bottom_c: 'Inlet bottom', outlet_c: 'Outlet', ref_c: 'Reference', delta_t_c: 'ΔT', reservoir_pct: 'Reservoir', floor_wet: 'Floor wet', pack_v: 'Rack power',
+  temp_c: 'Inlet air', vib_a_mm_s: 'Fan A vibration', vib_b_mm_s: 'Fan B vibration', disp_a_mm: 'Fan A wobble', disp_b_mm: 'Fan B wobble', drip_wet: 'Tray wet', pack_v: 'Rack power',
 };
+const isDisp = (c: ScanChannel) => c === 'disp_a_mm' || c === 'disp_b_mm';
 
 function ScanResult({ scan, focus }: { scan: Scan; focus: ScanChannel[] }) {
   const chans = (Object.keys(scan.channels) as ScanChannel[]).sort((a, b) => Number(focus.includes(b)) - Number(focus.includes(a)));
@@ -273,12 +273,12 @@ function ScanResult({ scan, focus }: { scan: Scan; focus: ScanChannel[] }) {
         <tbody>
           {chans.map((c) => {
             const s = scan.channels[c]!;
-            const fmt = (v: number) => (c === 'floor_wet' ? `${Math.round(v * 100)} %` : v.toFixed(c === 'reservoir_pct' ? 0 : 2));
+            const fmt = (v: number) => (c === 'drip_wet' ? `${Math.round(v * 100)} %` : isDisp(c) ? (v * 1000).toFixed(0) : v.toFixed(2));
             return (
               <tr key={c} className={focus.includes(c) ? 'is-focus' : ''}>
                 <th>{CH_LABEL[c]}</th>
-                <td className="mono">{fmt(s.mean)}<small> {c === 'floor_wet' ? 'of frames' : s.unit}</small></td>
-                <td className="mono sc-sd">± {c === 'floor_wet' ? '' : s.sd.toFixed(2)}</td>
+                <td className="mono">{fmt(s.mean)}<small> {c === 'drip_wet' ? 'of frames' : isDisp(c) ? 'µm' : s.unit}</small></td>
+                <td className="mono sc-sd">± {c === 'drip_wet' ? '' : isDisp(c) ? (s.sd * 1000).toFixed(0) : s.sd.toFixed(2)}</td>
                 <td className="mono sc-n">n {s.n}</td>
               </tr>
             );
@@ -298,12 +298,16 @@ function History({ scans }: { scans: Scan[] }) {
       <h2>Recent scans</h2>
       <ul className="sc-hist">
         {list.map((s) => {
-          const temp = s.channels.inlet_bottom_c ?? s.channels.inlet_top_c ?? s.channels.outlet_c;
+          const temp = s.channels.temp_c;
+          const vibs = [s.channels.vib_a_mm_s?.mean, s.channels.vib_b_mm_s?.mean].filter((v): v is number => v != null);
+          const key = s.channels.drip_wet && s.point.startsWith('Drip') ? (s.channels.drip_wet.mean >= 0.5 ? 'WET' : 'dry')
+            : s.point.startsWith('Fan') && vibs.length ? `${Math.max(...vibs).toFixed(1)} mm/s`
+            : temp ? `${temp.mean.toFixed(1)} °C` : '—';
           return (
             <li key={s.id}>
               <span className="mono">{new Date(s.endedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
               <span><strong>{s.assetId}</strong> {s.point}</span>
-              <span className="mono">{s.channels.floor_wet && s.point.startsWith('Floor') ? (s.channels.floor_wet.mean >= 0.5 ? 'WET' : 'dry') : temp ? `${temp.mean.toFixed(1)} °C` : '—'}</span>
+              <span className="mono">{key}</span>
               <span className="sc-src">{s.source === 'live' ? 'LIVE' : 'SIM'}</span>
             </li>
           );

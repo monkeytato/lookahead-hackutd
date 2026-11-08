@@ -105,7 +105,7 @@ describe('local planner with external services', () => {
   });
 
   it('wet floor scan + open valve → proposes "valve close" and a ticket, both awaiting approval', async () => {
-    const { ext, actions } = fakeServices({ rigStatus: () => ({ frame: frame({ valve: 'open', floor_raw: 600 }), events: [], mode: 'simulated' }) });
+    const { ext, actions } = fakeServices({ rigStatus: () => ({ frame: frame({ valve: 'open', drip_raw: 600 }), events: [], mode: 'simulated' }) });
     const incidents = leakIncidents().map((i) => (i.id === 'INC-1045' ? { ...i, evidence: 'corroborated_abnormal' as const } : i));
     await runLocalPlanner(leakInput({ incidents, scans: [floorScan('BATT-B', 1)] }), 'test', Date.now(), ext);
     expect(actions.map((a) => a.kind).sort()).toEqual(['rig_command', 'ticket']);

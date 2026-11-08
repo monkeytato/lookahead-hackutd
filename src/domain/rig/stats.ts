@@ -1,21 +1,8 @@
 /**
  * Small, pure statistics helpers shared by the scan summarizer and the diagnosis rules.
- *
- * Acoustic de-duplication. The three HC-SR04 beams take turns: each one produces a fresh
- * ~25-ping average roughly every 5 s, and the firmware repeats ("holds") the last average in
- * every 1 Hz frame in between. Counting those repeats as samples would inflate n, shrink the
- * standard deviation and bias slopes, so `beamSamples` keeps only frames where the beam's
- * `beam_age_s` reset (a new average was taken). Each kept sample is timed at the moment the
- * average was taken (`at − beam_age_s`), not when the bridge received the frame.
+ * Every channel in protocol v2 is one value per frame, so there is no de-duplication here.
  */
-import type { StampedFrame } from './protocol';
-
-export type Beam = 'inlet_top' | 'inlet_bottom' | 'outlet';
-export const BEAMS: readonly Beam[] = ['inlet_top', 'inlet_bottom', 'outlet'];
-
-export function beamChannel(beam: Beam): 'inlet_top_c' | 'inlet_bottom_c' | 'outlet_c' {
-  return `${beam}_c`;
-}
+import type { Fan, StampedFrame } from './protocol';
 
 export interface Sample {
   /** epoch ms */
@@ -23,38 +10,8 @@ export interface Sample {
   v: number;
 }
 
-/**
- * Two held readings whose implied refresh instants (`at − age`) differ by more than this are
- * different averages even if the age did not visibly reset (e.g. frames were dropped across a
- * whole beam cycle). Absorbs bridge receive-time jitter.
- */
-const EPOCH_TOLERANCE_MS = 1500;
-
 export function toMs(iso: string): number {
   return Date.parse(iso);
-}
-
-/** De-duplicated fresh averages for one beam (see module comment). Nulls are skipped. */
-export function beamSamples(frames: readonly StampedFrame[], beam: Beam): Sample[] {
-  const out: Sample[] = [];
-  let prevAge: number | null = null;
-  let lastEpoch: number | null = null;
-  for (const f of frames) {
-    const v = f[beamChannel(beam)];
-    const age = f.beam_age_s?.[beam] ?? 0;
-    if (v === null || v === undefined || !Number.isFinite(v)) {
-      prevAge = null;
-      continue;
-    }
-    const epoch = toMs(f.at) - age * 1000;
-    const isNew =
-      lastEpoch === null || prevAge === null || age < prevAge || epoch - lastEpoch > EPOCH_TOLERANCE_MS;
-    prevAge = age;
-    if (!isNew) continue;
-    lastEpoch = epoch;
-    out.push({ t: epoch, v });
-  }
-  return out;
 }
 
 /** One sample per frame from a picker; null / non-finite values are skipped. */
@@ -69,6 +26,11 @@ export function frameSeries(
     out.push({ t: toMs(f.at), v });
   }
   return out;
+}
+
+/** Indicative RMS velocity series for one fan channel (mm/s). */
+export function vibSeries(frames: readonly StampedFrame[], fan: Fan): Sample[] {
+  return frameSeries(frames, (f) => f.vib?.[fan]?.vel_mm_s);
 }
 
 export function mean(xs: readonly number[]): number {

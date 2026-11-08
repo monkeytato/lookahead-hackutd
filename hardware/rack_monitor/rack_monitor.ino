@@ -1,25 +1,33 @@
 // ============================================================================
-//  Rack Monitor firmware  --  hardware/rack_monitor/rack_monitor.ino
+//  Rack Monitor firmware v2  --  hardware/rack_monitor/rack_monitor.ino
 //
 //  Board : Arduino UNO R4 WiFi or UNO R4 Minima (Renesas RA4M1 core)
-//  Link  : USB serial, 115200 baud, one JSON object (RigFrame) per line, ~1 Hz
+//  Link  : USB serial, 115200 baud, one JSON object (RigFrame v2) per line, ~1 Hz
 //  Spec  : src/domain/rig/protocol.ts (authoritative frame/command format)
-//          "Rack Monitor -- Wiring & Assembly" (Nov 7, 2026) (authoritative pins)
 //
 //  STATUS: written without a toolchain -- NOT YET COMPILED OR FLASHED.
 //
-//  What it does
-//    * Three HC-SR04 beams measure air temperature from the speed of sound:
-//        c = 2d / t,   T = 273.15 * ((c / 331.3)^2 - 1)
-//      Beams take turns (25 pings each, 60 ms apart => ~1.5 s per beam,
-//      ~4.5 s for all three). Each batch is sanity-checked (timeouts,
-//      obstruction, single-echo outliers) before it updates the beam.
-//    * DS18B20 reference probe (optional) calibrates each beam's path length
-//      at startup / on "cal", and is cross-checked live against inlet_bottom.
-//    * Two on-device safety fixes (when auto is on): recirculation -> close
-//      flap; coolant leak -> close valve. Refused (and flagged) when the pack
-//      is known to be low, because the servos run off the pack.
-//    * OLED status (4 lines) and, on the R4 WiFi, the LED matrix.
+//  Sensors (four):
+//    * DS18B20 temperature probe at the front inlet (D11, 5.1k pull-up).
+//      12-bit, one reading every 2 s, read asynchronously (never blocks).
+//    * Two HC-SR04 ultrasonic sensors used for VIBRATION, one aimed squarely at
+//      each exhaust fan's mount from ~40 mm. They ping alternately every 30 ms
+//      (~16 Hz per sensor). Over a window of 64 pings (~3.8 s) the firmware
+//      reports the mean distance, the RMS and peak-to-peak wobble around it,
+//      an apparent frequency from zero crossings, and an indicative velocity
+//      2*pi*f*disp. The ~16 Hz ping rate cannot resolve a 25 Hz shaft rate
+//      (Nyquist ~8 Hz), so freq_hz is an aliased, APPARENT frequency and
+//      vel_mm_s is a trend number, not an ISO 10816 measurement.
+//    * One water level sensor lying flat in the drip tray under the coolant
+//      line (A0): raw ADC, ~0 dry, rising as drips cover its traces.
+//    Also read: the 6xAA pack through a 10k/10k divider on A2.
+//
+//  Two on-device safety fixes (when auto is on):
+//    * recirculation: inlet >= 1.5 C above its calibrated baseline on two
+//      consecutive probe readings with the flap open -> close the flap.
+//    * leak: drip tray wet with the isolation valve open -> close the valve.
+//    Both are refused (and flagged) when the pack is known to be low, because
+//    the servos run off the pack.
 // ============================================================================
 
 #include <Arduino.h>
@@ -31,10 +39,8 @@
 #include <ctype.h>
 
 // ---------------------------------------------------------------- feature flags
-// Parts that arrive later are compiled in by default and detected at runtime.
-// Set a flag to 0 to remove the code path entirely.
 #ifndef HAS_DS18B20
-#define HAS_DS18B20 1        // DS18B20 on D11 (5.1k pull-up). Absent => ref_c null + "ref_missing"
+#define HAS_DS18B20 1        // DS18B20 on D11. Absent => temp_c null + "temp_missing"
 #endif
 #ifndef HAS_FANS
 #define HAS_FANS 1           // L298N ENA/ENB on D5/D6. Harmless if not wired yet.
@@ -49,43 +55,34 @@
 #define USE_LED_MATRIX 1     // R4 WiFi only; ignored on the Minima
 #endif
 #ifndef SERVO_DETACH_AFTER_MOVE
-// 1: detach each servo SERVO_SETTLE_MS after a move. Stops the Servo timer ISR
-//    and the 50 Hz pulse train, which otherwise add jitter to pulseIn() echo
-//    timing. SG90 gear friction holds the light flap / valve arm unpowered.
-// 0: keep the servos attached and holding. Use this if the flap sags or the
-//    valve plug creeps out of the hole; expect noisier echoes (more outliers).
-#define SERVO_DETACH_AFTER_MOVE 1
-#endif
-
-#if HAS_OLED
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#define SERVO_DETACH_AFTER_MOVE 1   // cleaner pings; servos don't hold against force
 #endif
 
 #if HAS_DS18B20
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #endif
-
-#if USE_LED_MATRIX && defined(ARDUINO_UNOR4_WIFI)
+#if HAS_OLED
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#endif
+#if USE_LED_MATRIX && defined(ARDUINO_UNOWIFIR4)
 #include <Arduino_LED_Matrix.h>
 #define LED_MATRIX_ENABLED 1
 #else
 #define LED_MATRIX_ENABLED 0
 #endif
 
-// ---------------------------------------------------------------- identity
 #define RM_DEVICE_ID  "RACKMON-01"
-#define RM_FW_VERSION "1.0.0"
+#define RM_FW_VERSION "2.0.0"
 
-// ---------------------------------------------------------------- pins (wiring doc)
-enum { BEAM_TOP = 0, BEAM_BOTTOM = 1, BEAM_OUTLET = 2, NUM_BEAMS = 3 };
-const uint8_t P_TRIG[NUM_BEAMS] = { 2, 7, 13 };   // inlet top, inlet bottom, outlet
-const uint8_t P_ECHO[NUM_BEAMS] = { 4, 8, 12 };
-const char* const BEAM_NAME[NUM_BEAMS] = { "inlet_top", "inlet_bottom", "outlet" };
+// ---------------------------------------------------------------- pins
+const uint8_t NUM_VIB = 2;
+const uint8_t P_TRIG[NUM_VIB] = { 2, 7 };     // fan A, fan B
+const uint8_t P_ECHO[NUM_VIB] = { 4, 8 };
+const char* const VIB_NAME[NUM_VIB] = { "fan_a", "fan_b" };
 
-const uint8_t P_RESERVOIR = A0;   // water sensor in the reservoir tub
-const uint8_t P_FLOOR     = A1;   // water sensor in the drip tray
+const uint8_t P_DRIP      = A0;   // water sensor in the drip tray
 const uint8_t P_PACK      = A2;   // pack divider midpoint (V_pack = 2 * V_A2)
 const uint8_t P_FAN_A     = 5;    // L298N ENA
 const uint8_t P_FAN_B     = 6;    // L298N ENB
@@ -93,76 +90,63 @@ const uint8_t P_FLAP      = 9;    // flap servo signal
 const uint8_t P_VALVE     = 10;   // valve servo signal
 const uint8_t P_ONEWIRE   = 11;   // DS18B20 data
 
-// ---------------------------------------------------------------- servo angles
-// TUNE AFTER ASSEMBLY. The doc's assembly step 1 centres both servos at 90 deg
-// before the horns go on, and the flap horn is pressed on with the flap
-// standing up (closed), the valve arm with the plug seated in the leak hole
-// (closed). So "closed" = 90 deg for both; "open" is a swing away from that.
-// If a part swings the wrong way, mirror the open angle around 90
-// (e.g. 180 -> 0, 135 -> 45). Keep clear of the 0/180 end stops if the part
-// hits the lid / divider before the servo reaches the angle.
+// ---------------------------------------------------------------- tunables
 const int FLAP_CLOSED_DEG  = 90;
 const int FLAP_OPEN_DEG    = 180;   // flap lying back (gap over the divider open)
 const int VALVE_CLOSED_DEG = 90;
 const int VALVE_OPEN_DEG   = 135;   // plug swung out of the leak hole
 const uint32_t SERVO_SETTLE_MS = 700;   // time to finish a move; pings pause meanwhile
 
-// ---------------------------------------------------------------- acoustic constants
-const float    DEFAULT_PATH_M    = 0.178f;  // one-way beam path from the CAD
-const uint8_t  PINGS_PER_BEAM    = 25;      // pings averaged per beam update
-const uint32_t PING_GAP_MS       = 60;      // between any two pings (sensors must not hear each other)
-const unsigned long ECHO_TIMEOUT_US = 3000; // ~1040 us expected; covers the HC-SR04 lead-in too
-const float    MAX_JUMP_C        = 5.0f;    // single echo implying a bigger jump = outlier
-const float    T_MIN_C           = -20.0f;  // plausible air temperature window per echo
-const float    T_MAX_C           = 90.0f;
-const float    OBSTRUCT_FRACTION = 0.85f;   // echo < 85 % of the 20 C echo (~130 C equivalent) = obstruction
-const uint8_t  MIN_GOOD_PINGS    = 8;       // fewer accepted pings than this => batch untrusted
-const uint8_t  OUTLIER_FLAG_MIN  = 5;       // rejected pings in one batch that raise "<beam>_outliers"
-const float    CAL_WINDOW_US     = 10.0f;   // calibration uses echoes within +-10 us of the median
-const float    CAL_PATH_MIN_M    = 0.150f;  // calibrated path outside this => keep 0.178 m, "uncalibrated"
-const float    CAL_PATH_MAX_M    = 0.210f;
-const float    REF_DISAGREE_C    = 2.0f;    // |inlet_bottom - ref| above this => "ref_disagree"
+// Ultrasonic vibration
+const uint8_t  VIB_WINDOW        = 64;      // pings per sensor per window (~3.8 s)
+const uint32_t PING_GAP_MS       = 30;      // between any two pings (sensors alternate)
+const unsigned long ECHO_TIMEOUT_US = 3000; // ~245 us expected at 42 mm
+const float    US_TO_MM          = 0.1715f; // 343 m/s / 2 (room temperature; scale only)
+const float    OBSTRUCT_MM       = 15.0f;   // closer than this: something in front of the sensor
+const float    MAX_DIST_MM       = 300.0f;  // farther than this: not aimed at the mount
+const uint8_t  MIN_GOOD_PINGS    = 24;      // fewer accepted pings => window untrusted ("noisy")
+const float    JUMP_MM           = 6.0f;    // single ping this far from the window median = outlier
+const float    ZC_MIN_MM         = 0.05f;   // hysteresis for zero-crossing counting
+const float    FREQ_MIN_HZ       = 0.3f;
 
-// ---------------------------------------------------------------- DS18B20 timing
-const uint32_t REF_PERIOD_MS     = 2000;    // one reading every 2 s
-const uint32_t REF_CONVERSION_MS = 800;     // 12-bit conversion is 750 ms (async, never blocks)
-const uint32_t REF_RESCAN_MS     = 10000;   // look for a probe again every 10 s while missing
+// Probe + recirculation fix
+const uint32_t REF_PERIOD_MS     = 2000;
+const uint32_t REF_CONVERSION_MS = 800;     // 12-bit conversion is 750 ms (async)
+const uint32_t REF_RESCAN_MS     = 10000;
+const float    RECIRC_DELTA_C    = 1.5f;    // inlet above baseline by this => recirculation
+const uint8_t  RECIRC_CONFIRM    = 2;       // consecutive probe readings that must agree
+const float    BASELINE_FLOOR_C  = 10.0f;   // sanity: a baseline below this is not a room
 
-// ---------------------------------------------------------------- water / pack / safety
-const uint16_t FLOOR_WET_RAW    = 200;    // TUNE: floor sensor above this = wet (dry reads ~0)
-const int      RES_DROP_MIN     = 15;     // TUNE: reservoir must fall by this many counts over ~10 s
-const uint8_t  RES_HIST_LEN     = 11;     // 1 Hz samples => 10 s window
-const float    RECIRC_DELTA_C   = 1.5f;   // inlet_top - inlet_bottom at/above this => recirculation
-const uint8_t  RECIRC_CONFIRM   = 2;      // consecutive fresh inlet batches that must agree
-const float    PACK_ADC_VREF    = 5.0f;   // TUNE: measure the R4's 5V pin on USB (often 4.7-5.0 V)
-const float    PACK_DIVIDER     = 2.0f;   // 10k / 10k
-const float    PACK_LOW_V       = 6.0f;   // below this the servos cannot be trusted to move
-const float    PACK_DETECT_MIN_V = 6.5f;  // a healthy pack must read in this window ...
+// Leak fix
+const uint16_t DRIP_WET_RAW      = 120;     // TUNE: tray sensor above this = wet (dry reads ~0)
+
+// Pack
+const float    PACK_ADC_VREF     = 5.0f;    // TUNE: measure the R4's 5V pin on USB
+const float    PACK_DIVIDER      = 2.0f;    // 10k / 10k
+const float    PACK_LOW_V        = 6.0f;
+const float    PACK_DETECT_MIN_V = 6.5f;
 const float    PACK_DETECT_MAX_V = 10.5f;
-const uint8_t  PACK_DETECT_SAMPLES = 5;   // ... steadily for 5 s before the divider counts as fitted
-const int      FAN_MAX_PCT      = 70;     // TT motors are 3-6 V on a 9 V pack
+const uint8_t  PACK_DETECT_SAMPLES = 5;
+const int      FAN_MAX_PCT       = 70;      // TT motors are 3-6 V on a 9 V pack
 
-// ---------------------------------------------------------------- scheduling
-const uint32_t FRAME_PERIOD_MS  = 1000;
-const uint32_t SAMPLE_PERIOD_MS = 1000;   // water + pack sampling and leak check
-const uint32_t OLED_PERIOD_MS   = 1000;
-const uint32_t OLED_PHASE_MS    = 500;    // redraw half-way between frames
-const uint32_t ACTION_ALERT_MS  = 10000;  // LED matrix shows "!" this long after a safety action
+// Scheduling
+const uint32_t FRAME_PERIOD_MS   = 1000;
+const uint32_t SAMPLE_PERIOD_MS  = 1000;
+const uint32_t OLED_PERIOD_MS    = 1000;
+const uint32_t OLED_PHASE_MS     = 500;
+const uint32_t ACTION_ALERT_MS   = 10000;
 
 // ---------------------------------------------------------------- types
-enum BeamStatus { BS_NONE = 0, BS_OK, BS_TIMEOUT, BS_OBSTRUCTED, BS_NOISY };   // stored as uint8_t
+enum VibStatus { VS_NONE = 0, VS_OK, VS_TIMEOUT, VS_OBSTRUCTED, VS_NOISY };
 
-struct Beam {
-  float    pathM;          // one-way path length used in c = 2d/t
-  bool     calibrated;     // pathM came from the reference probe
-  bool     calPending;     // next good batch re-derives pathM
-  float    tempC;          // NAN = null in the frame
-  float    echoUs;         // NAN = null in the frame
-  float    runningC;       // last accepted temperature, reference for outlier rejection
-  uint32_t lastFreshMs;    // millis() of last good batch (0 = never)
-  uint8_t  status;         // BeamStatus of the last batch
-  uint8_t  lastRejected;   // outliers rejected in the last batch
-  uint32_t outliersTotal;  // since boot (not in the frame; shown via "<beam>_outliers")
+struct VibChan {
+  uint16_t samples[VIB_WINDOW];   // echo us, 0 = timeout
+  uint8_t  count;
+  // last computed window
+  float    distMm, dispMm, p2pMm, freqHz, velMmS;   // NAN = null
+  uint8_t  n;
+  uint8_t  status;
+  float    baselineMm;            // from "cal"; informational
 };
 
 struct Actuator {
@@ -177,42 +161,38 @@ struct Actuator {
 };
 
 // ---------------------------------------------------------------- globals
-Beam beams[NUM_BEAMS];
-uint16_t samples[PINGS_PER_BEAM];
-uint8_t  sampleCount = 0;
-uint8_t  curBeam = BEAM_TOP;
+VibChan vib[NUM_VIB];
+uint8_t  curVib = 0;
 uint32_t lastPingMs = 0;
 uint32_t pingPauseUntil = 0;
 
 Actuator flap;
 Actuator valve;
 
-bool    autoMode = true;           // safety fixes armed (default on)
+bool    autoMode = true;
 uint8_t recircHits = 0;
-bool    flapBlocked = false;       // recirculation seen but pack low
-bool    valveBlocked = false;      // leak seen but pack low
-bool    cmdBlocked = false;        // one-shot: manual servo command refused (pack low)
-bool    badCmd = false;            // one-shot: unparseable command
+bool    flapBlocked = false;
+bool    valveBlocked = false;
+bool    cmdBlocked = false;
+bool    badCmd = false;
 uint32_t lastActionMs = 0;
 bool    hadAction = false;
 
 int fanPct[2] = { 0, 0 };
 
-uint16_t reservoirRaw = 0;
-uint16_t floorRaw = 0;
-uint16_t resHist[RES_HIST_LEN];
-uint8_t  resHead = 0;
-uint8_t  resCount = 0;
-bool     reservoirDropping = false;
-bool     floorWet = false;
+uint16_t dripRaw = 0;
+bool     dripWet = false;
 
 float   packV = NAN;
-bool    packFitted = false;        // latched once a healthy pack has been seen on A2
+bool    packFitted = false;
 float   packPrevV = 0.0f;
 uint8_t packStable = 0;
 
 bool     refPresent = false;
-float    refC = NAN;
+float    tempC = NAN;
+bool     tempInvalid = false;
+float    baselineC = NAN;
+bool     calibrated = false;
 bool     refConverting = false;
 uint32_t refRequestedAt = 0;
 uint32_t refNextReqAt = 0;
@@ -222,8 +202,8 @@ uint8_t  refFailCount = 0;
 const char* evQueue[4];
 uint8_t evCount = 0;
 
-const uint8_t MAX_FLAGS = 20;
-const uint8_t FLAG_LEN = 28;
+const uint8_t MAX_FLAGS = 16;
+const uint8_t FLAG_LEN = 24;
 char    flagBuf[MAX_FLAGS][FLAG_LEN];
 uint8_t flagCount = 0;
 bool    statusAlert = false;
@@ -252,85 +232,47 @@ uint8_t oledFlagIdx = 0;
 
 #if LED_MATRIX_ENABLED
 ArduinoLEDMatrix matrix;
-// 8 rows x 12 columns, '#' = lit
 const char* const LED_OK_ROWS[8] = {
-  "............",
-  "..........#.",
-  ".........##.",
-  "........##..",
-  ".#.....##...",
-  ".##...##....",
-  "..##.##.....",
-  "...###......"
+  "............", "..........#.", ".........##.", "........##..",
+  ".#.....##...", ".##...##....", "..##.##.....", "...###......",
 };
 const char* const LED_ALERT_ROWS[8] = {
-  ".....##.....",
-  ".....##.....",
-  ".....##.....",
-  ".....##.....",
-  ".....##.....",
-  "............",
-  ".....##.....",
-  ".....##....."
+  ".....##.....", ".....##.....", ".....##.....", ".....##.....",
+  ".....##.....", "............", ".....##.....", ".....##.....",
 };
 uint32_t ledOkFrame[3];
 uint32_t ledAlertFrame[3];
-int8_t   ledShown = -1;   // -1 none, 0 ok, 1 alert
+int8_t   ledShown = -1;
 #endif
 
 // ============================================================================
 //  Small helpers
 // ============================================================================
 
-bool due(uint32_t now, uint32_t at) {
-  return (int32_t)(now - at) >= 0;
-}
-
-float soundSpeed(float tC) {
-  return 331.3f * sqrtf(1.0f + tC / 273.15f);
-}
-
-// Temperature implied by a round-trip echo of echoUs over a one-way path pathM.
-float tempFromEcho(float echoUs, float pathM) {
-  if (echoUs <= 0.0f) return NAN;
-  float c = 2.0f * pathM / (echoUs * 1e-6f);
-  float r = c / 331.3f;
-  return 273.15f * (r * r - 1.0f);
-}
-
-void sortU16(uint16_t* a, uint8_t n) {
-  for (uint8_t i = 1; i < n; i++) {
-    uint16_t k = a[i];
-    int8_t j = (int8_t)i - 1;
-    while (j >= 0 && a[j] > k) {
-      a[j + 1] = a[j];
-      j--;
-    }
-    a[j + 1] = k;
-  }
-}
+bool due(uint32_t now, uint32_t at) { return (int32_t)(now - at) >= 0; }
 
 uint16_t readAvg(uint8_t pin, uint8_t n) {
   uint32_t s = 0;
-  for (uint8_t i = 0; i < n; i++) s += (uint32_t)analogRead(pin);
-  return (uint16_t)((s + n / 2) / n);
+  for (uint8_t i = 0; i < n; i++) s += analogRead(pin);
+  return (uint16_t)(s / n);
 }
 
-// Fixed-point "%.1f" without printf float support. NAN -> "--.-".
-void fmt1(char* out, size_t n, float x, bool withSign) {
-  if (isnan(x)) {
-    snprintf(out, n, "--.-");
-    return;
+void fmt1(char* out, size_t cap, float x, bool sign) {
+  if (isnan(x)) { snprintf(out, cap, "--"); return; }
+  if (sign) snprintf(out, cap, "%+.1f", (double)x);
+  else snprintf(out, cap, "%.1f", (double)x);
+}
+
+void sortF(float* v, uint8_t n) {
+  for (uint8_t i = 1; i < n; i++) {
+    float x = v[i];
+    int8_t j = (int8_t)i - 1;
+    while (j >= 0 && v[j] > x) { v[j + 1] = v[j]; j--; }
+    v[j + 1] = x;
   }
-  long v = (long)(x * 10.0f + (x >= 0.0f ? 0.5f : -0.5f));
-  bool neg = v < 0;
-  if (neg) v = -v;
-  snprintf(out, n, "%s%ld.%ld", neg ? "-" : (withSign ? "+" : ""), v / 10, v % 10);
 }
 
-void pushEvent(const char* e) {
-  if (evCount < 4) evQueue[evCount++] = e;
-}
+void pushEvent(const char* e) { if (evCount < 4) evQueue[evCount++] = e; }
 
 const char* popEvent() {
   if (evCount == 0) return NULL;
@@ -348,39 +290,25 @@ bool packLow() {
 #endif
 }
 
-bool pingsPaused(uint32_t now) {
-  return (int32_t)(pingPauseUntil - now) > 0;
-}
-
-void pausePingsUntil(uint32_t t) {
-  if ((int32_t)(t - pingPauseUntil) > 0) pingPauseUntil = t;
-}
+bool pingsPaused(uint32_t now) { return (int32_t)(pingPauseUntil - now) > 0; }
+void pausePingsUntil(uint32_t t) { if ((int32_t)(t - pingPauseUntil) > 0) pingPauseUntil = t; }
 
 // ============================================================================
 //  Actuators
 // ============================================================================
 
 void actuatorInit(Actuator& a, uint8_t pin, int openDeg, int closedDeg) {
-  a.pin = pin;
-  a.openDeg = openDeg;
-  a.closedDeg = closedDeg;
-  a.isOpen = false;
-  a.attached = false;
-  a.settling = false;
-  a.settleUntil = 0;
+  a.pin = pin; a.openDeg = openDeg; a.closedDeg = closedDeg;
+  a.isOpen = false; a.attached = false; a.settling = false; a.settleUntil = 0;
 }
 
-// Drives the servo unconditionally. Callers decide whether a move is allowed.
 void moveActuator(Actuator& a, bool open) {
-  if (!a.attached) {
-    a.servo.attach(a.pin);
-    a.attached = true;
-  }
+  if (!a.attached) { a.servo.attach(a.pin); a.attached = true; }
   a.servo.write(open ? a.openDeg : a.closedDeg);
   a.isOpen = open;
   a.settling = true;
   a.settleUntil = millis() + SERVO_SETTLE_MS;
-  pausePingsUntil(a.settleUntil);   // keep servo noise out of the echo batches
+  pausePingsUntil(a.settleUntil);   // keep servo noise out of the vibration window
 }
 
 void serviceActuator(Actuator& a, uint32_t now) {
@@ -393,23 +321,15 @@ void serviceActuator(Actuator& a, uint32_t now) {
   }
 }
 
-// Manual command path. With the pack known to be low the servo cannot move,
-// so the command is refused and the reported state stays truthful.
 void commandActuator(Actuator& a, bool open) {
-  if (packLow()) {
-    cmdBlocked = true;
-    return;
-  }
+  if (packLow()) { cmdBlocked = true; return; }
   moveActuator(a, open);
 }
 
 void setFans(int a, int b) {
-  if (a < 0) a = 0;
-  if (a > FAN_MAX_PCT) a = FAN_MAX_PCT;
-  if (b < 0) b = 0;
-  if (b > FAN_MAX_PCT) b = FAN_MAX_PCT;
-  fanPct[0] = a;
-  fanPct[1] = b;
+  if (a < 0) a = 0; if (a > FAN_MAX_PCT) a = FAN_MAX_PCT;
+  if (b < 0) b = 0; if (b > FAN_MAX_PCT) b = FAN_MAX_PCT;
+  fanPct[0] = a; fanPct[1] = b;
 #if HAS_FANS
   analogWrite(P_FAN_A, (a * 255 + 50) / 100);
   analogWrite(P_FAN_B, (b * 255 + 50) / 100);
@@ -417,26 +337,16 @@ void setFans(int a, int b) {
 }
 
 // ============================================================================
-//  Safety fix 1: recirculation -> close the flap
+//  Safety fix 1: recirculation -> close the flap (on every probe reading)
 // ============================================================================
 
-// Called after every inlet_top / inlet_bottom batch (good or not).
 void evalRecirc() {
-  float top = beams[BEAM_TOP].tempC;
-  float bot = beams[BEAM_BOTTOM].tempC;
-  bool cond = autoMode && flap.isOpen && !isnan(top) && !isnan(bot) &&
-              (top - bot) >= RECIRC_DELTA_C;
-  if (!cond) {
-    recircHits = 0;
-    flapBlocked = false;
-    return;
-  }
+  bool cond = autoMode && flap.isOpen && calibrated && !tempInvalid && !isnan(tempC) &&
+              (tempC - baselineC) >= RECIRC_DELTA_C;
+  if (!cond) { recircHits = 0; flapBlocked = false; return; }
   if (recircHits < 255) recircHits++;
   if (recircHits < RECIRC_CONFIRM) return;
-  if (packLow()) {          // servo has no power: report, don't claim
-    flapBlocked = true;
-    return;
-  }
+  if (packLow()) { flapBlocked = true; return; }
   moveActuator(flap, false);
   pushEvent("flap_closed");
   recircHits = 0;
@@ -446,40 +356,14 @@ void evalRecirc() {
 }
 
 // ============================================================================
-//  Safety fix 2: coolant leak -> close the valve
+//  Safety fix 2: coolant drip -> close the valve (once a second)
 // ============================================================================
 
-void resPush(uint16_t v) {
-  resHist[resHead] = v;
-  resHead = (uint8_t)((resHead + 1) % RES_HIST_LEN);
-  if (resCount < RES_HIST_LEN) resCount++;
-}
-
-// k = 0 is the newest sample, k = RES_HIST_LEN - 1 the oldest.
-uint16_t resAgo(uint8_t k) {
-  return resHist[(resHead + RES_HIST_LEN - 1 - k) % RES_HIST_LEN];
-}
-
-// Mean of the 3 oldest minus mean of the 3 newest samples in the ~10 s window.
-int resDrop() {
-  if (resCount < RES_HIST_LEN) return 0;
-  int32_t oldest = (int32_t)resAgo(RES_HIST_LEN - 1) + resAgo(RES_HIST_LEN - 2) + resAgo(RES_HIST_LEN - 3);
-  int32_t newest = (int32_t)resAgo(0) + resAgo(1) + resAgo(2);
-  return (int)((oldest - newest) / 3);
-}
-
 void evalLeak() {
-  reservoirDropping = resDrop() >= RES_DROP_MIN;
-  floorWet = floorRaw >= FLOOR_WET_RAW;
-  bool cond = autoMode && valve.isOpen && reservoirDropping && floorWet;
-  if (!cond) {
-    valveBlocked = false;
-    return;
-  }
-  if (packLow()) {
-    valveBlocked = true;
-    return;
-  }
+  dripWet = dripRaw >= DRIP_WET_RAW;
+  bool cond = autoMode && valve.isOpen && dripWet;
+  if (!cond) { valveBlocked = false; return; }
+  if (packLow()) { valveBlocked = true; return; }
   moveActuator(valve, false);
   pushEvent("valve_closed");
   valveBlocked = false;
@@ -487,19 +371,12 @@ void evalLeak() {
   hadAction = true;
 }
 
-// Water + pack, once a second. Cheap (12 ADC reads).
 void sampleSlowSensors() {
-  reservoirRaw = readAvg(P_RESERVOIR, 4);
-  floorRaw = readAvg(P_FLOOR, 4);
-  resPush(reservoirRaw);
-
+  dripRaw = readAvg(P_DRIP, 4);
 #if HAS_PACK_DIVIDER
   float v = (float)readAvg(P_PACK, 4) * (PACK_ADC_VREF / 1023.0f) * PACK_DIVIDER;
   packV = v;
   if (!packFitted) {
-    // An unconnected A2 floats, and a switched-off pack reads ~0 V through the
-    // divider. Only latch "fitted" after a healthy, steady pack reading; from
-    // then on report the real value (so a power loss shows as a drop, not null).
     if (v >= PACK_DETECT_MIN_V && v <= PACK_DETECT_MAX_V && fabsf(v - packPrevV) < 0.3f) {
       if (++packStable >= PACK_DETECT_SAMPLES) packFitted = true;
     } else {
@@ -508,12 +385,11 @@ void sampleSlowSensors() {
     packPrevV = v;
   }
 #endif
-
   evalLeak();
 }
 
 // ============================================================================
-//  DS18B20 reference probe (asynchronous: never waits for a conversion)
+//  DS18B20 inlet probe (asynchronous)
 // ============================================================================
 
 void refScan() {
@@ -522,33 +398,31 @@ void refScan() {
   if (dallas.getDeviceCount() > 0 && dallas.getAddress(refAddr, 0)) {
     dallas.setResolution(refAddr, 12);
     dallas.setWaitForConversion(false);
-    refPresent = true;
-    refFailCount = 0;
-    refConverting = false;
+    refPresent = true; refFailCount = 0; refConverting = false;
     refNextReqAt = millis();
   } else {
-    refPresent = false;
-    refC = NAN;
+    refPresent = false; tempC = NAN;
   }
 #endif
 }
 
-// Returns true if it touched the bus (used one heavy slot).
+void onProbeReading(float t) {
+  tempC = t;
+  tempInvalid = false;
+  if (!calibrated && t > BASELINE_FLOOR_C) { baselineC = t; calibrated = true; }   // first reading = baseline
+  evalRecirc();
+}
+
 bool refService(uint32_t now) {
 #if HAS_DS18B20
   if (!refPresent) {
-    if (due(now, refNextScanAt)) {
-      refNextScanAt = now + REF_RESCAN_MS;
-      refScan();
-      return true;
-    }
+    if (due(now, refNextScanAt)) { refNextScanAt = now + REF_RESCAN_MS; refScan(); return true; }
     return false;
   }
   if (!refConverting) {
     if (due(now, refNextReqAt)) {
       dallas.requestTemperaturesByAddress(refAddr);
-      refRequestedAt = now;
-      refConverting = true;
+      refRequestedAt = now; refConverting = true;
       return true;
     }
     return false;
@@ -557,17 +431,14 @@ bool refService(uint32_t now) {
     refConverting = false;
     refNextReqAt = refRequestedAt + REF_PERIOD_MS;
     float t = dallas.getTempC(refAddr);
-    if (t < -55.0f || t > 125.0f) {   // includes DEVICE_DISCONNECTED_C (-127)
-      if (++refFailCount >= 3) {
-        refPresent = false;
-        refC = NAN;
-        refNextScanAt = now + REF_RESCAN_MS;
-      }
-    } else if (t == 85.0f && (isnan(refC) || fabsf(refC - 85.0f) > 5.0f)) {
+    if (t < -55.0f || t > 125.0f) {        // includes DEVICE_DISCONNECTED_C (-127)
+      tempInvalid = true;
+      if (++refFailCount >= 3) { refPresent = false; tempC = NAN; refNextScanAt = now + REF_RESCAN_MS; }
+    } else if (t == 85.0f && (isnan(tempC) || fabsf(tempC - 85.0f) > 5.0f)) {
       // 85.0 is the DS18B20 power-on value, not a reading
     } else {
-      refC = t;
       refFailCount = 0;
+      onProbeReading(t);
     }
     return true;
   }
@@ -579,155 +450,87 @@ bool refService(uint32_t now) {
 }
 
 // ============================================================================
-//  Acoustic beams
+//  Ultrasonic vibration
 // ============================================================================
 
-uint16_t pingOnce(uint8_t b) {
-  digitalWrite(P_TRIG[b], LOW);
+uint16_t pingOnce(uint8_t c) {
+  digitalWrite(P_TRIG[c], LOW);
   delayMicroseconds(2);
-  digitalWrite(P_TRIG[b], HIGH);
+  digitalWrite(P_TRIG[c], HIGH);
   delayMicroseconds(10);
-  digitalWrite(P_TRIG[b], LOW);
-  unsigned long us = pulseIn(P_ECHO[b], HIGH, ECHO_TIMEOUT_US);   // 0 on timeout
+  digitalWrite(P_TRIG[c], LOW);
+  unsigned long us = pulseIn(P_ECHO[c], HIGH, ECHO_TIMEOUT_US);   // 0 on timeout
   if (us > 65535UL) us = 0;
   return (uint16_t)us;
 }
 
-// Re-derive the path length from this batch: d = c(T_ref) * t / 2.
-void tryCalibrate(uint8_t b, const uint16_t* v, uint8_t n, float medianUs) {
-  Beam& bm = beams[b];
-  if (!refPresent) {
-    // No probe on the bus: fall back to the CAD path and say so.
-    bm.pathM = DEFAULT_PATH_M;
-    bm.calibrated = false;
-    bm.calPending = false;
-    bm.runningC = NAN;
-    return;
-  }
-  if (isnan(refC)) return;   // probe found, first reading not in yet: try next cycle
-
-  float sum = 0.0f;
-  uint8_t k = 0;
-  for (uint8_t i = 0; i < n; i++) {
-    if (fabsf((float)v[i] - medianUs) <= CAL_WINDOW_US) {
-      sum += v[i];
-      k++;
-    }
-  }
-  if (k < MIN_GOOD_PINGS) return;   // too scattered: try next cycle
-
-  float t = sum / k;
-  float d = soundSpeed(refC) * t * 1e-6f / 2.0f;
-  bm.calPending = false;
-  bm.runningC = NAN;   // the scale changed; re-seed the outlier reference
-  if (d < CAL_PATH_MIN_M || d > CAL_PATH_MAX_M) {
-    bm.pathM = DEFAULT_PATH_M;   // implausible (beam not on its reflector?)
-    bm.calibrated = false;
-    return;
-  }
-  bm.pathM = d;
-  bm.calibrated = true;
-}
-
-void processBatch(uint8_t b) {
-  Beam& bm = beams[b];
-  const uint8_t n = sampleCount;
-  float t20Us = 2.0f * bm.pathM / soundSpeed(20.0f) * 1e6f;
-  float obstructUs = OBSTRUCT_FRACTION * t20Us;
-
-  uint16_t valid[PINGS_PER_BEAM];
+// One window: mean distance, detrended RMS and p2p wobble, zero-crossing frequency.
+void processWindow(uint8_t c) {
+  VibChan& v = vib[c];
+  const uint8_t n = v.count;
+  float d[VIB_WINDOW];
   uint8_t nValid = 0, nTimeout = 0, nObstruct = 0;
   float obstructSum = 0.0f;
   for (uint8_t i = 0; i < n; i++) {
-    uint16_t s = samples[i];
-    if (s == 0) {
-      nTimeout++;
-    } else if ((float)s < obstructUs) {
-      nObstruct++;
-      obstructSum += s;
-    } else {
-      valid[nValid++] = s;
-    }
+    uint16_t s = v.samples[i];
+    if (s == 0) { nTimeout++; continue; }
+    float mm = (float)s * US_TO_MM;
+    if (mm < OBSTRUCT_MM) { nObstruct++; obstructSum += mm; continue; }
+    if (mm > MAX_DIST_MM) { nTimeout++; continue; }   // not looking at the mount
+    d[nValid++] = mm;
   }
+  v.dispMm = v.p2pMm = v.freqHz = v.velMmS = NAN;
+  v.n = nValid;
+  if ((uint16_t)nObstruct * 2 >= n) { v.status = VS_OBSTRUCTED; v.distMm = obstructSum / nObstruct; return; }
+  if ((uint16_t)nTimeout * 2 >= n)  { v.status = VS_TIMEOUT; v.distMm = NAN; return; }
+  if (nValid < MIN_GOOD_PINGS)      { v.status = VS_NOISY; v.distMm = NAN; return; }
 
-  bm.lastRejected = 0;
+  // median for outlier rejection, keeping the time order of accepted samples
+  float sorted[VIB_WINDOW];
+  memcpy(sorted, d, nValid * sizeof(float));
+  sortF(sorted, nValid);
+  float median = (nValid & 1) ? sorted[nValid / 2] : 0.5f * (sorted[nValid / 2 - 1] + sorted[nValid / 2]);
+  float acc[VIB_WINDOW];
+  uint8_t m = 0;
+  for (uint8_t i = 0; i < nValid; i++) if (fabsf(d[i] - median) <= JUMP_MM) acc[m++] = d[i];
+  if (m < MIN_GOOD_PINGS) { v.status = VS_NOISY; v.distMm = median; v.n = m; return; }
+  v.n = m;
 
-  // Mostly short echoes: something is in the beam. Report the echo, not a temperature.
-  if ((uint16_t)nObstruct * 2 >= n) {
-    bm.status = BS_OBSTRUCTED;
-    bm.echoUs = obstructSum / nObstruct;
-    bm.tempC = NAN;
-    return;
+  // linear detrend (slow drift of the mount or the rig being nudged)
+  float sx = 0, sy = 0, sxy = 0, sxx = 0;
+  for (uint8_t i = 0; i < m; i++) { sx += i; sy += acc[i]; sxy += (float)i * acc[i]; sxx += (float)i * i; }
+  float slope = (m * sxx - sx * sx) != 0 ? (m * sxy - sx * sy) / (m * sxx - sx * sx) : 0;
+  float mean = sy / m;
+  float intercept = mean - slope * (sx / m);
+  float ss = 0, lo = 1e9f, hi = -1e9f;
+  uint8_t zc = 0;
+  int8_t sign = 0;
+  for (uint8_t i = 0; i < m; i++) {
+    float r = acc[i] - (intercept + slope * i);
+    ss += r * r;
+    if (r < lo) lo = r;
+    if (r > hi) hi = r;
+    int8_t s = r > ZC_MIN_MM ? 1 : r < -ZC_MIN_MM ? -1 : 0;
+    if (s != 0) { if (sign != 0 && s != sign) zc++; sign = s; }
   }
-  // Mostly no echo at all: sensor fault / unplugged / misaimed.
-  if ((uint16_t)nTimeout * 2 >= n) {
-    bm.status = BS_TIMEOUT;
-    bm.echoUs = NAN;
-    bm.tempC = NAN;
-    return;
-  }
-  if (nValid < MIN_GOOD_PINGS) {
-    bm.status = BS_NOISY;
-    bm.echoUs = NAN;
-    bm.tempC = NAN;
-    return;
-  }
-
-  sortU16(valid, nValid);
-  float medianUs = (nValid & 1) ? (float)valid[nValid / 2]
-                                : 0.5f * ((float)valid[nValid / 2 - 1] + (float)valid[nValid / 2]);
-
-  if (bm.calPending) tryCalibrate(b, valid, nValid, medianUs);
-
-  // Outlier reference: the running value, unless the bulk of this batch (its
-  // median) has moved more than MAX_JUMP_C -- then it's a real change, not a
-  // single bad echo, so re-seed from the median.
-  float medT = tempFromEcho(medianUs, bm.pathM);
-  float refT = (!isnan(bm.runningC) && fabsf(medT - bm.runningC) <= MAX_JUMP_C) ? bm.runningC : medT;
-
-  float sum = 0.0f;
-  uint8_t nAcc = 0;
-  uint8_t rejected = nObstruct;   // stray short echoes count as outliers too
-  for (uint8_t i = 0; i < nValid; i++) {
-    float t = tempFromEcho((float)valid[i], bm.pathM);
-    if (t < T_MIN_C || t > T_MAX_C || fabsf(t - refT) > MAX_JUMP_C) {
-      rejected++;
-    } else {
-      sum += valid[i];
-      nAcc++;
-    }
-  }
-  bm.lastRejected = rejected;
-  bm.outliersTotal += rejected;
-
-  if (nAcc < MIN_GOOD_PINGS) {
-    // Echoes exist but don't imply a plausible temperature (e.g. bench test
-    // against a wall that isn't 178 mm away). Keep the median echo visible.
-    bm.status = BS_NOISY;
-    bm.echoUs = medianUs;
-    bm.tempC = NAN;
-    return;
-  }
-
-  bm.echoUs = sum / nAcc;
-  bm.tempC = tempFromEcho(bm.echoUs, bm.pathM);
-  bm.runningC = bm.tempC;
-  bm.status = BS_OK;
-  bm.lastFreshMs = millis();
+  v.distMm = mean;
+  v.dispMm = sqrtf(ss / m);
+  v.p2pMm = hi - lo;
+  float windowS = (float)m * (2.0f * PING_GAP_MS) / 1000.0f;   // this sensor pings every other gap
+  float f = windowS > 0 ? (float)zc / (2.0f * windowS) : 0;
+  v.freqHz = f >= FREQ_MIN_HZ ? f : NAN;
+  v.velMmS = isnan(v.freqHz) ? NAN : 2.0f * (float)M_PI * v.freqHz * v.dispMm;
+  v.status = VS_OK;
 }
 
-// One ping per call when due. Returns true if it pinged.
 bool servicePing(uint32_t now) {
   if (pingsPaused(now)) return false;
   if (now - lastPingMs < PING_GAP_MS) return false;
-  samples[sampleCount++] = pingOnce(curBeam);
-  if (sampleCount >= PINGS_PER_BEAM) {
-    processBatch(curBeam);
-    if (curBeam == BEAM_TOP || curBeam == BEAM_BOTTOM) evalRecirc();
-    sampleCount = 0;
-    curBeam = (uint8_t)((curBeam + 1) % NUM_BEAMS);
-  }
-  lastPingMs = millis();   // gap is measured from the end of the ping
+  VibChan& v = vib[curVib];
+  v.samples[v.count++] = pingOnce(curVib);
+  if (v.count >= VIB_WINDOW) { processWindow(curVib); v.count = 0; }
+  curVib = (uint8_t)((curVib + 1) % NUM_VIB);
+  lastPingMs = millis();
   return true;
 }
 
@@ -742,34 +545,18 @@ void addFlag(const char* a, const char* b) {
 
 void buildFlags(uint32_t now) {
   flagCount = 0;
-  bool beamBad = false;
-  bool anyUncal = false, anyPending = false;
-
-  for (uint8_t b = 0; b < NUM_BEAMS; b++) {
-    const Beam& bm = beams[b];
-    switch (bm.status) {
-      case BS_TIMEOUT:    addFlag(BEAM_NAME[b], "_timeout");    beamBad = true; break;
-      case BS_OBSTRUCTED: addFlag(BEAM_NAME[b], "_obstructed"); beamBad = true; break;
-      case BS_NOISY:      addFlag(BEAM_NAME[b], "_noisy");      beamBad = true; break;
+  bool vibBad = false;
+  for (uint8_t c = 0; c < NUM_VIB; c++) {
+    switch (vib[c].status) {
+      case VS_TIMEOUT:    addFlag(VIB_NAME[c], "_timeout");    vibBad = true; break;
+      case VS_OBSTRUCTED: addFlag(VIB_NAME[c], "_obstructed"); vibBad = true; break;
+      case VS_NOISY:      addFlag(VIB_NAME[c], "_noisy");      vibBad = true; break;
       default: break;
     }
-    if (bm.lastRejected >= OUTLIER_FLAG_MIN) addFlag(BEAM_NAME[b], "_outliers");
-    if (bm.calPending) anyPending = true;
-    else if (!bm.calibrated) anyUncal = true;
   }
-
-  bool refDisagree = false;
-  if (!refPresent) {
-    addFlag("ref_missing", "");
-  } else {
-    float bot = beams[BEAM_BOTTOM].tempC;
-    if (!isnan(refC) && !isnan(bot) && fabsf(bot - refC) > REF_DISAGREE_C) {
-      addFlag("ref_disagree", "");
-      refDisagree = true;
-    }
-  }
-  if (anyPending) addFlag("calibrating", "");
-  if (anyUncal) addFlag("uncalibrated", "");
+  if (!refPresent) addFlag("temp_missing", "");
+  else if (tempInvalid) addFlag("temp_invalid", "");
+  if (!calibrated) addFlag("uncalibrated", "");
   bool low = packLow();
   if (low) addFlag("pack_low", "");
   if (flapBlocked) addFlag("flap_blocked", "");
@@ -779,31 +566,32 @@ void buildFlags(uint32_t now) {
 #if HAS_OLED
   if (!oledOk) addFlag("oled_missing", "");
 #endif
-
   bool recentAction = hadAction && (now - lastActionMs) < ACTION_ALERT_MS;
-  statusAlert = low || floorWet || beamBad || refDisagree || flapBlocked ||
-                valveBlocked || recentAction;
+  statusAlert = low || dripWet || vibBad || flapBlocked || valveBlocked || recentAction;
 }
 
-void jNum(float x) {
+void jNum(float x, int dp = 2) {
   if (isnan(x)) Serial.print("null");
-  else Serial.print(x, 2);
+  else Serial.print(x, dp);
 }
 
-void jBeamKey(uint8_t b) {
-  if (b) Serial.print(',');
-  Serial.print('"');
-  Serial.print(BEAM_NAME[b]);
-  Serial.print("\":");
+void jVib(uint8_t c) {
+  const VibChan& v = vib[c];
+  if (c) Serial.print(',');
+  Serial.print('"'); Serial.print(VIB_NAME[c]); Serial.print("\":{\"dist_mm\":");
+  jNum(v.distMm, 1);
+  Serial.print(",\"disp_mm\":"); jNum(v.dispMm, 3);
+  Serial.print(",\"p2p_mm\":");  jNum(v.p2pMm, 3);
+  Serial.print(",\"freq_hz\":"); jNum(v.freqHz, 1);
+  Serial.print(",\"vel_mm_s\":"); jNum(v.velMmS, 2);
+  Serial.print(",\"n\":"); Serial.print((int)v.n);
+  Serial.print('}');
 }
 
 void updateLedMatrix() {
 #if LED_MATRIX_ENABLED
   int8_t want = statusAlert ? 1 : 0;
-  if (want != ledShown) {
-    matrix.loadFrame(want ? ledAlertFrame : ledOkFrame);
-    ledShown = want;
-  }
+  if (want != ledShown) { matrix.loadFrame(want ? ledAlertFrame : ledOkFrame); ledShown = want; }
 #endif
 }
 
@@ -811,146 +599,88 @@ void emitFrame() {
   uint32_t now = millis();
   buildFlags(now);
 
-  Serial.print("{\"v\":1,\"dev\":\"" RM_DEVICE_ID "\",\"fw\":\"" RM_FW_VERSION "\",\"seq\":");
+  Serial.print("{\"v\":2,\"dev\":\"" RM_DEVICE_ID "\",\"fw\":\"" RM_FW_VERSION "\",\"seq\":");
   Serial.print((unsigned long)seq);
   Serial.print(",\"up_ms\":");
   Serial.print((unsigned long)now);
-
-  Serial.print(",\"inlet_top_c\":");
-  jNum(beams[BEAM_TOP].tempC);
-  Serial.print(",\"inlet_bottom_c\":");
-  jNum(beams[BEAM_BOTTOM].tempC);
-  Serial.print(",\"outlet_c\":");
-  jNum(beams[BEAM_OUTLET].tempC);
-
-  Serial.print(",\"echo_us\":{");
-  for (uint8_t b = 0; b < NUM_BEAMS; b++) {
-    jBeamKey(b);
-    jNum(beams[b].echoUs);
-  }
-  Serial.print("},\"beam_age_s\":{");
-  for (uint8_t b = 0; b < NUM_BEAMS; b++) {
-    jBeamKey(b);
-    Serial.print((float)(now - beams[b].lastFreshMs) / 1000.0f, 2);
-  }
-  Serial.print("},\"ref_c\":");
-  jNum(refPresent ? refC : NAN);
-
-  Serial.print(",\"reservoir_raw\":");
-  Serial.print((int)reservoirRaw);
-  Serial.print(",\"floor_raw\":");
-  Serial.print((int)floorRaw);
-
+  Serial.print(",\"temp_c\":");
+  jNum(refPresent ? tempC : NAN, 4);
+  Serial.print(",\"vib\":{");
+  for (uint8_t c = 0; c < NUM_VIB; c++) jVib(c);
+  Serial.print("},\"drip_raw\":");
+  Serial.print((int)dripRaw);
   Serial.print(",\"pack_v\":");
 #if HAS_PACK_DIVIDER
   jNum(packFitted ? packV : NAN);
 #else
   Serial.print("null");
 #endif
-
-  Serial.print(",\"flap\":\"");
-  Serial.print(flap.isOpen ? "open" : "closed");
-  Serial.print("\",\"valve\":\"");
-  Serial.print(valve.isOpen ? "open" : "closed");
-  Serial.print("\",\"fan_pct\":[");
-  Serial.print(fanPct[0]);
-  Serial.print(',');
-  Serial.print(fanPct[1]);
-  Serial.print("],\"auto\":");
-  Serial.print(autoMode ? "true" : "false");
-
+  Serial.print(",\"flap\":\"");  Serial.print(flap.isOpen ? "open" : "closed");
+  Serial.print("\",\"valve\":\""); Serial.print(valve.isOpen ? "open" : "closed");
+  Serial.print("\",\"fan_pct\":["); Serial.print(fanPct[0]); Serial.print(','); Serial.print(fanPct[1]);
+  Serial.print("],\"auto\":"); Serial.print(autoMode ? "true" : "false");
   Serial.print(",\"flags\":[");
   for (uint8_t i = 0; i < flagCount; i++) {
     if (i) Serial.print(',');
-    Serial.print('"');
-    Serial.print(flagBuf[i]);
-    Serial.print('"');
+    Serial.print('"'); Serial.print(flagBuf[i]); Serial.print('"');
   }
   Serial.print("],\"event\":");
   const char* ev = popEvent();
-  if (ev) {
-    Serial.print('"');
-    Serial.print(ev);
-    Serial.print('"');
-  } else {
-    Serial.print("null");
-  }
+  if (ev) { Serial.print('"'); Serial.print(ev); Serial.print('"'); } else Serial.print("null");
   Serial.print("}\n");
 
   seq = (seq + 1) & 0x7FFFFFFFUL;
-  cmdBlocked = false;   // one-shot flags are reported once
+  cmdBlocked = false;
   badCmd = false;
-
   updateLedMatrix();
 }
 
 // ============================================================================
-//  OLED (one full redraw ~25 ms at 400 kHz, at most once per second)
+//  OLED (4 lines)
 // ============================================================================
 
 void drawOled() {
 #if HAS_OLED
   if (!oledOk) return;
   char line[26];
-  char a[8], b[8], c[8], d[8];
-
-  float top = beams[BEAM_TOP].tempC;
-  float bot = beams[BEAM_BOTTOM].tempC;
-  float out = beams[BEAM_OUTLET].tempC;
-  float inlet = NAN;
-  if (!isnan(top) && !isnan(bot)) inlet = 0.5f * (top + bot);
-  else if (!isnan(top)) inlet = top;
-  else if (!isnan(bot)) inlet = bot;
-  float dT = (!isnan(out) && !isnan(inlet)) ? out - inlet : NAN;
+  char a[8], b[8], c[8];
 
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
 
-  // 1: inlet top / inlet bottom > outlet, dT (outlet - mean inlet)
-  fmt1(a, sizeof a, top, false);
-  fmt1(b, sizeof b, bot, false);
-  fmt1(c, sizeof c, out, false);
-  fmt1(d, sizeof d, dT, true);
-  snprintf(line, sizeof line, "%s/%s>%s d%s", a, b, c, d);
-  display.setCursor(0, 0);
-  display.print(line);
+  // 1: inlet temperature and its rise over baseline
+  fmt1(a, sizeof a, tempC, false);
+  fmt1(b, sizeof b, calibrated && !isnan(tempC) ? tempC - baselineC : NAN, true);
+  snprintf(line, sizeof line, "In %sC  d%s", a, b);
+  display.setCursor(0, 0); display.print(line);
 
-  // 2: water. 'v' = reservoir dropping
-  snprintf(line, sizeof line, "Res%4d%c Flr%4d %s", (int)reservoirRaw,
-           reservoirDropping ? 'v' : ' ', (int)floorRaw, floorWet ? "WET" : "dry");
-  display.setCursor(0, 16);
-  display.print(line);
+  // 2: fan vibration, indicative mm/s each
+  fmt1(a, sizeof a, vib[0].velMmS, false);
+  fmt1(b, sizeof b, vib[1].velMmS, false);
+  snprintf(line, sizeof line, "Vib A%s B%s mm/s", a, b);
+  display.setCursor(0, 16); display.print(line);
 
-  // 3: actuators + A(uto)/M(anual)
-  snprintf(line, sizeof line, "Flap %s Vlv %s %c", flap.isOpen ? "open" : "shut",
-           valve.isOpen ? "open" : "shut", autoMode ? 'A' : 'M');
-  display.setCursor(0, 32);
-  display.print(line);
+  // 3: tray + actuators
+  snprintf(line, sizeof line, "Tray%4d %s F%s V%s %c", (int)dripRaw, dripWet ? "WET" : "dry",
+           flap.isOpen ? "op" : "sh", valve.isOpen ? "op" : "sh", autoMode ? 'A' : 'M');
+  display.setCursor(0, 32); display.print(line);
 
-  // 4: flags, one at a time, cycling each redraw; or OK + pack voltage
+  // 4: flags cycling, or OK + pack
   if (flagCount == 0) {
 #if HAS_PACK_DIVIDER
-    if (packFitted) {
-      fmt1(a, sizeof a, packV, false);
-      snprintf(line, sizeof line, "OK  pack %sV", a);
-    } else {
-      snprintf(line, sizeof line, "OK  pack --");
-    }
+    if (packFitted) { fmt1(c, sizeof c, packV, false); snprintf(line, sizeof line, "OK  pack %sV", c); }
+    else snprintf(line, sizeof line, "OK  pack --");
 #else
     snprintf(line, sizeof line, "OK");
 #endif
   } else {
     if (oledFlagIdx >= flagCount) oledFlagIdx = 0;
-    const char* f = flagBuf[oledFlagIdx];
-    if (strncmp(f, "inlet_", 6) == 0) f += 6;   // "inlet_bottom_x" -> "bottom_x"
-    snprintf(line, sizeof line, "%u/%u %s", (unsigned)(oledFlagIdx + 1), (unsigned)flagCount, f);
+    snprintf(line, sizeof line, "%u/%u %s", (unsigned)(oledFlagIdx + 1), (unsigned)flagCount, flagBuf[oledFlagIdx]);
     oledFlagIdx++;
   }
-  line[21] = '\0';   // 21 columns at text size 1
-  display.setCursor(0, 48);
-  display.print(line);
-
+  line[21] = '\0';
+  display.setCursor(0, 48); display.print(line);
   display.display();
 #endif
 }
@@ -968,56 +698,33 @@ void handleLine(char* s) {
     if (!*p) break;
     tok[n++] = p;
     while (*p && *p != ' ' && *p != '\t') p++;
-    if (*p) {
-      *p = '\0';
-      p++;
-    }
+    if (*p) { *p = '\0'; p++; }
   }
   if (n == 0) return;
 
   if (strcmp(tok[0], "flap") == 0 || strcmp(tok[0], "valve") == 0) {
     Actuator& a = (tok[0][0] == 'f') ? flap : valve;
-    if (n == 2 && strcmp(tok[1], "open") == 0) {
-      commandActuator(a, true);
-    } else if (n == 2 && (strcmp(tok[1], "close") == 0 || strcmp(tok[1], "closed") == 0)) {
-      commandActuator(a, false);
-    } else {
-      badCmd = true;
-    }
+    if (n == 2 && strcmp(tok[1], "open") == 0) commandActuator(a, true);
+    else if (n == 2 && (strcmp(tok[1], "close") == 0 || strcmp(tok[1], "closed") == 0)) commandActuator(a, false);
+    else badCmd = true;
   } else if (strcmp(tok[0], "fan") == 0) {
-    if (n != 3) {
-      badCmd = true;
-      return;
-    }
-    char* e1;
-    char* e2;
+    if (n != 3) { badCmd = true; return; }
+    char* e1; char* e2;
     double fa = strtod(tok[1], &e1);
     double fb = strtod(tok[2], &e2);
-    if (e1 == tok[1] || *e1 != '\0' || e2 == tok[2] || *e2 != '\0') {
-      badCmd = true;
-      return;
-    }
-    if (fa < 0) fa = 0;
-    if (fb < 0) fb = 0;
-    if (fa > FAN_MAX_PCT) fa = FAN_MAX_PCT;
-    if (fb > FAN_MAX_PCT) fb = FAN_MAX_PCT;
+    if (e1 == tok[1] || *e1 != '\0' || e2 == tok[2] || *e2 != '\0') { badCmd = true; return; }
     setFans((int)(fa + 0.5), (int)(fb + 0.5));
   } else if (strcmp(tok[0], "auto") == 0) {
-    if (n == 2 && strcmp(tok[1], "on") == 0) {
-      autoMode = true;
-    } else if (n == 2 && strcmp(tok[1], "off") == 0) {
-      autoMode = false;
-      recircHits = 0;
-      flapBlocked = false;
-      valveBlocked = false;
-    } else {
-      badCmd = true;
-    }
+    if (n == 2 && strcmp(tok[1], "on") == 0) autoMode = true;
+    else if (n == 2 && strcmp(tok[1], "off") == 0) { autoMode = false; recircHits = 0; flapBlocked = false; valveBlocked = false; }
+    else badCmd = true;
   } else if (strcmp(tok[0], "cal") == 0 && n == 1) {
-    // Re-derive every beam's path on its next good batch (~5 s for all three).
-    // Run with the laptop idle so all three beams see room temperature.
-    for (uint8_t b = 0; b < NUM_BEAMS; b++) beams[b].calPending = true;
-    if (!refPresent) refNextScanAt = millis();   // look for the probe right away
+    // Baseline = the current inlet reading (do it with the flap shut and the laptop idle),
+    // and remember each sensor's mean distance to its fan mount.
+    if (!isnan(tempC) && tempC > BASELINE_FLOOR_C) { baselineC = tempC; calibrated = true; }
+    else calibrated = false;
+    for (uint8_t c = 0; c < NUM_VIB; c++) vib[c].baselineMm = vib[c].distMm;
+    if (!refPresent) refNextScanAt = millis();
   } else if (strcmp(tok[0], "ping") == 0 && n == 1) {
     emitFrame();
   } else {
@@ -1025,21 +732,15 @@ void handleLine(char* s) {
   }
 }
 
-// Non-blocking: drains what's buffered, never waits for more.
 void serviceSerial() {
   uint8_t budget = 64;
   while (budget-- && Serial.available() > 0) {
     int ch = Serial.read();
     if (ch < 0) break;
     if (ch == '\n' || ch == '\r') {
-      if (lineOverflow) {
-        badCmd = true;
-      } else if (lineLen > 0) {
-        lineBuf[lineLen] = '\0';
-        handleLine(lineBuf);
-      }
-      lineLen = 0;
-      lineOverflow = false;
+      if (lineOverflow) badCmd = true;
+      else if (lineLen > 0) { lineBuf[lineLen] = '\0'; handleLine(lineBuf); }
+      lineLen = 0; lineOverflow = false;
     } else if (lineLen < sizeof(lineBuf) - 1) {
       lineBuf[lineLen++] = (char)tolower(ch);
     } else {
@@ -1053,47 +754,33 @@ void serviceSerial() {
 // ============================================================================
 
 #if HAS_OLED
-bool i2cProbe(uint8_t addr) {
-  Wire.beginTransmission(addr);
-  return Wire.endTransmission() == 0;
-}
+bool i2cProbe(uint8_t addr) { Wire.beginTransmission(addr); return Wire.endTransmission() == 0; }
 #endif
 
 #if LED_MATRIX_ENABLED
 void packLedRows(const char* const rows[8], uint32_t out[3]) {
   out[0] = out[1] = out[2] = 0;
-  for (uint8_t r = 0; r < 8; r++) {
-    for (uint8_t c = 0; c < 12; c++) {
-      if (rows[r][c] == '#') {
-        uint8_t i = r * 12 + c;
-        out[i / 32] |= (1UL << (31 - (i % 32)));
-      }
-    }
-  }
+  for (uint8_t r = 0; r < 8; r++)
+    for (uint8_t c = 0; c < 12; c++)
+      if (rows[r][c] == '#') { uint8_t i = r * 12 + c; out[i / 32] |= (1UL << (31 - (i % 32))); }
 }
 #endif
 
 void setup() {
   Serial.begin(115200);   // no while(!Serial): must run without a laptop attached
 #if defined(ARDUINO_ARCH_RENESAS)
-  analogReadResolution(10);   // protocol: water sensors are 10-bit raw 0..1023
+  analogReadResolution(10);
 #endif
 
-  for (uint8_t b = 0; b < NUM_BEAMS; b++) {
-    pinMode(P_TRIG[b], OUTPUT);
-    digitalWrite(P_TRIG[b], LOW);
-    pinMode(P_ECHO[b], INPUT);
-    Beam& bm = beams[b];
-    bm.pathM = DEFAULT_PATH_M;
-    bm.calibrated = false;
-    bm.calPending = true;   // startup calibration on each beam's first good batch
-    bm.tempC = NAN;
-    bm.echoUs = NAN;
-    bm.runningC = NAN;
-    bm.lastFreshMs = 0;
-    bm.status = BS_NONE;
-    bm.lastRejected = 0;
-    bm.outliersTotal = 0;
+  for (uint8_t c = 0; c < NUM_VIB; c++) {
+    pinMode(P_TRIG[c], OUTPUT);
+    digitalWrite(P_TRIG[c], LOW);
+    pinMode(P_ECHO[c], INPUT);
+    VibChan& v = vib[c];
+    v.count = 0;
+    v.distMm = v.dispMm = v.p2pMm = v.freqHz = v.velMmS = v.baselineMm = NAN;
+    v.n = 0;
+    v.status = VS_NONE;
   }
 
 #if HAS_FANS
@@ -1102,7 +789,6 @@ void setup() {
 #endif
   setFans(0, 0);
 
-  // Known safe state: flap standing (closed), plug in the leak hole (closed).
   actuatorInit(flap, P_FLAP, FLAP_OPEN_DEG, FLAP_CLOSED_DEG);
   actuatorInit(valve, P_VALVE, VALVE_OPEN_DEG, VALVE_CLOSED_DEG);
   moveActuator(flap, false);
@@ -1118,10 +804,8 @@ void setup() {
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 0);
-    display.print("Rack Monitor " RM_FW_VERSION);
-    display.setCursor(0, 16);
-    display.print("calibrating...");
+    display.setCursor(0, 0);  display.print("Rack Monitor " RM_FW_VERSION);
+    display.setCursor(0, 16); display.print("waiting for probe...");
     display.display();
   }
 #endif
@@ -1149,13 +833,13 @@ void loop() {
   serviceActuator(flap, now);
   serviceActuator(valve, now);
 
-  if (servicePing(now)) heavySlot = true;   // ~55 ms of quiet until the next ping
+  if (servicePing(now)) heavySlot = true;   // ~25 ms of quiet until the next ping
   now = millis();
-  if (pingsPaused(now)) heavySlot = true;   // servos moving: no pings to protect
+  if (pingsPaused(now)) heavySlot = true;
 
   if (due(now, nextSampleAt)) {
     nextSampleAt += SAMPLE_PERIOD_MS;
-    if (due(now, nextSampleAt)) nextSampleAt = now + SAMPLE_PERIOD_MS;   // fell behind: resync
+    if (due(now, nextSampleAt)) nextSampleAt = now + SAMPLE_PERIOD_MS;
     sampleSlowSensors();
   }
 

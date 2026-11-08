@@ -188,9 +188,10 @@ function EvidenceBlock({ incident, readings, sessions }: { incident: Incident; r
 
   const bridge = useBridge();
   const [reqState, setReqState] = useState<string>('');
-  // what the Rack Monitor can honestly measure for this incident (no accelerometer on this build)
-  const rigPoint = metric === 'inlet_temp_c' ? { assetId: fixture?.assetId ?? assetId, point: 'Front inlet · both beams' }
-    : metric === 'leak' || incident.rootAssetId === 'PIPE-L2' ? { assetId: fixture?.assetId ?? assetId, point: 'Floor · leak probe' } : null;
+  // what the Rack Monitor can measure for this incident: inlet probe, ultrasonic fan-mount vibration, drip tray
+  const rigPoint = metric === 'inlet_temp_c' ? { assetId: fixture?.assetId ?? assetId, point: 'Front inlet · temperature probe' }
+    : metric === 'vibration_mm_s' ? { assetId: fixture?.assetId ?? assetId, point: 'Fan mount · ultrasonic vibration' }
+    : metric === 'leak' || incident.rootAssetId === 'PIPE-L2' ? { assetId: fixture?.assetId ?? assetId, point: 'Drip tray · water sensor' } : null;
   const requestScan = async () => {
     if (!rigPoint) return;
     try {
@@ -247,7 +248,7 @@ function EvidenceBlock({ incident, readings, sessions }: { incident: Incident; r
           </span>
         </div>
       )}
-      {!rigPoint && metric === 'vibration_mm_s' && <p className="muted small">The Rack Monitor build has no accelerometer, so vibration can't be checked with the rig.</p>}
+      {rigPoint && metric === 'vibration_mm_s' && <p className="muted small">Ultrasonic displacement at the fan mount, scaled to an indicative mm/s. Not an ISO 10816 contact measurement; compare trend, not absolute level.</p>}
       {fixture && sessions.length === 0 && (
         <div className="ev-cta">
           <Btn kind="ghost" onClick={verify}>Use fixture reading instead</Btn>

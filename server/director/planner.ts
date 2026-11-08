@@ -76,11 +76,11 @@ export async function runLocalPlanner(input: DirectorInput, fallbackReason?: str
   call(session, steps, 'get_situation', {});
   // outside world first: is the rig trustworthy, and is the weather stressing the cooling plant?
   let rigTrust: string | null = null;
-  let rig: { valve?: string; floor_raw?: number; source?: string } | null = null;
+  let rig: { valve?: string; drip_wet?: boolean; source?: string } | null = null;
   let weatherNote: string | null = null;
   if (ext) {
     const r = await callExt(session, steps, ext, 'get_rig_status', {});
-    if (r.ok) { const c = r.content as { trust: string; valve: string; floor_raw: number; source: string }; rigTrust = c.trust; rig = c; }
+    if (r.ok) { const c = r.content as { trust: string; valve: string; drip_wet: boolean; source: string }; rigTrust = c.trust; rig = c; }
     const w = await callExt(session, steps, ext, 'get_weather', { hours: 6 });
     if (w.ok) weatherNote = (w.content as { note: string }).note;
   }
@@ -160,9 +160,9 @@ export async function runLocalPlanner(input: DirectorInput, fallbackReason?: str
   if (ext) {
     // act within authority: queue the scan (a person performs it); propose, never execute, the rest
     if (nextScan) await callExt(session, steps, ext, 'request_scan', { ...nextScan, incidentId: best?.incidentId });
-    const latestWet = session.input.scans.filter((sc) => sc.status === 'complete' && (sc.channels.floor_wet?.mean ?? 0) >= 0.5).at(-1);
+    const latestWet = session.input.scans.filter((sc) => sc.status === 'complete' && (sc.channels.drip_wet?.mean ?? 0) >= 0.5).at(-1);
     if (latestWet && rig?.valve === 'open') {
-      await callExt(session, steps, ext, 'propose_rig_action', { cmd: 'valve close', reason: `Floor scan ${latestWet.id} at ${latestWet.assetId} is wet while the rig's isolation valve is open — isolate the loop.`, incidentId: session.incidents.find((i) => i.rootAssetId === latestWet.assetId || i.alertAssetIds.includes(latestWet.assetId))?.id });
+      await callExt(session, steps, ext, 'propose_rig_action', { cmd: 'valve close', reason: `Drip-tray scan ${latestWet.id} at ${latestWet.assetId} is wet while the rig's isolation valve is open — isolate the loop.`, incidentId: session.incidents.find((i) => i.rootAssetId === latestWet.assetId || i.alertAssetIds.includes(latestWet.assetId))?.id });
     }
     for (const inc of session.incidents.filter((i) => i.severity === 'critical' && i.evidence === 'corroborated_abnormal')) {
       const r = base.ranking.find((x) => x.incidentId === inc.id);

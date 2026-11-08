@@ -14,7 +14,7 @@ import { assetById, checkinState, clocksForIncident, groupClocks, ROLE_LABEL, vi
 import { EvidenceTag, SevMark, Src } from '../components/primitives';
 import { ScanIngest } from '../views/ScanIngest';
 import { SERVICE_LABEL, type DirectorResultView, type PendingActionView } from '../views/directorTypes';
-import { ageText, clockSeverity, clockText, deltaT, nextClock, openIncidents, rigTiles, sortTasks, sparkRange, sparkSegments, statusText, taskBucket, taskCounts } from './derive';
+import { ageText, clockSeverity, clockText, maxVib, nextClock, openIncidents, rigTiles, sortTasks, sparkRange, sparkSegments, statusText, taskBucket, taskCounts } from './derive';
 import { FixPanel } from '../views/FixPanel';
 import { useControls } from '../app/controls';
 import { likelihood } from '../app/forecast';
@@ -209,11 +209,10 @@ function RigTab() {
   const dev = deviceLabel(b.status, b.online);
   const f = b.latest;
   const recent = b.frames.slice(-90);
-  // the check that matters: acoustic inlet beams vs the DS18B20 reference beside them
+  // the check that matters: are the two fans vibrating alike, and is either trending up?
   const series = [
-    { key: 'inlet_top', label: 'Inlet top', vals: recent.map((x) => x.inlet_top_c), cls: 'b' },
-    { key: 'inlet_bottom', label: 'Inlet bottom', vals: recent.map((x) => x.inlet_bottom_c), cls: 'a' },
-    { key: 'ref', label: 'Reference', vals: recent.map((x) => x.ref_c), cls: 'c' },
+    { key: 'vib_a', label: 'Fan A', vals: recent.map((x) => x.vib?.fan_a?.vel_mm_s ?? null), cls: 'b' },
+    { key: 'vib_b', label: 'Fan B', vals: recent.map((x) => x.vib?.fan_b?.vel_mm_s ?? null), cls: 'a' },
   ];
   const W = 320, H = 96;
   const scale = sparkRange(series.flatMap((s) => s.vals)); // one shared axis for all series
@@ -250,7 +249,7 @@ function RigTab() {
         )}
         {f && (
           <div className="m-kv m-kv-tight">
-            <span>ΔT outlet−inlet</span><span className="mono">{deltaT(f) == null ? '—' : `${deltaT(f)} °C`}</span>
+            <span>Loudest fan</span><span className="mono">{maxVib(f) == null ? '—' : `${maxVib(f)} mm/s`}</span>
             <span>Actuators</span><span className="mono">flap {f.flap} · valve {f.valve} · fans {f.fan_pct.join('/')}% · auto {f.auto ? 'on' : 'off'}</span>
             {f.flags.length > 0 && <><span>Flags</span><span className="mono m-warn">{f.flags.join(', ')}</span></>}
           </div>
@@ -259,7 +258,7 @@ function RigTab() {
 
       {scale && (
         <section className="m-sec">
-          <h2 className="m-h">Inlet air <span className="m-h-sub">last {recent.length} frames · acoustic beams vs reference probe</span></h2>
+          <h2 className="m-h">Fan vibration <span className="m-h-sub">last {recent.length} frames · ultrasonic, indicative mm/s</span></h2>
           <svg className="m-spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Temperature trend">
             {series.map((s) => {
               const seg = sparkSegments(s.vals, W, H, scale)?.segments ?? [];
@@ -268,7 +267,7 @@ function RigTab() {
           </svg>
           <div className="m-legend">
             {series.map((s) => <span key={s.key}><i className={`m-spark-${s.cls}`} />{s.label}</span>)}
-            <span className="mono m-muted">{scale.min.toFixed(1)}–{scale.max.toFixed(1)} °C</span>
+            <span className="mono m-muted">{scale.min.toFixed(1)}–{scale.max.toFixed(1)} mm/s</span>
           </div>
         </section>
       )}

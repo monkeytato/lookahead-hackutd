@@ -18,9 +18,9 @@ export const leakInput = (over: Partial<DirectorInput> = {}): DirectorInput => (
 
 export function floorScan(assetId: string, wet: number): Scan {
   return {
-    id: `SCAN-${assetId}`, assetId, point: 'Battery room threshold, floor', deviceId: 'RACKMON-01', firmware: '1.0.0', source: 'simulated',
+    id: `SCAN-${assetId}`, assetId, point: 'Drip tray at battery room threshold', deviceId: 'RACKMON-01', firmware: '2.0.0', source: 'simulated',
     operator: 'emp-sofia', startedAt: '2026-11-07T08:35:00Z', endedAt: '2026-11-07T08:35:10Z', durationS: 10, frames: 10, status: 'complete',
-    channels: { floor_wet: { n: 10, mean: wet, min: wet, max: wet, sd: 0, slopePerMin: 0, unit: 'fraction' } }, quality: ['simulated_device'],
+    channels: { drip_wet: { n: 10, mean: wet, min: wet, max: wet, sd: 0, slopePerMin: 0, unit: 'fraction' } }, quality: ['simulated_device'],
   };
 }
 

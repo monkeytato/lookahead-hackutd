@@ -83,18 +83,19 @@ Presenter keys: **Space** play/pause · **R** random disaster · **P** predictio
 ```
 Rack Monitor (UNO R4, USB JSON @1 Hz) ─► bridge ─► SSE ─► scanner app  (live numbers, hold to scan)
          ▲ flap / valve / fan commands      │            dashboard     (scan → evidence → verdict)
-         └──────────────────────────────────┤            rack node     (acoustic vs reference, rig events)
+         └──────────────────────────────────┤            rack node     (fan vibration, inlet probe, rig events)
                                             └─ /api/director → Nemotron simulation director
 ```
 
-- **Hold to scan, 10 s.** The three acoustic beams take turns, and each averages about 25 pings, so all three refresh roughly every 5 s.
-  - Releasing before **5 s** (one full cycle) discards the scan.
-  - Holding to **10 s** (two cycles) completes it automatically.
+- **Four sensors.** One DS18B20 temperature probe at the front inlet; two HC-SR04 ultrasonic sensors, one aimed at each exhaust fan's mount, used for **vibration** (distance wobble over a ~4 s window → RMS displacement, apparent frequency and an indicative mm/s); one water level sensor lying in the drip tray under the coolant line. The pack voltage is read through a divider. See `hardware/README.md`.
+- **Hold to scan, 10 s.** The probe refreshes every 2 s and each vibration window is ~3.8 s.
+  - Releasing before **5 s** discards the scan.
+  - Holding to **10 s** completes it automatically.
   - The bridge computes the statistics from the frames it buffered, so a client can start or stop a scan but never send numbers.
-  - Each channel reports mean ± sd, n and slope. Held acoustic values are de-duplicated so n counts real averages.
-- **Scan → evidence.** A front-inlet scan becomes a reference reading compared against the installed sensor. A floor scan becomes liquid evidence. Both feed the same four verdicts. If the rig's own acoustic and reference readings disagree by more than 2 °C, the verdict is *inconclusive* and the scan should be repeated.
-- **No accelerometer on this build.** Vibration incidents (CRAH-2) stay a runbook check, and the UI says so.
-- **The rig's own rules** cover the ten situations from the wiring doc: power loss, single fan, recirculation, heat spike, cold-supply loss, leak at rack, leak elsewhere, outside water, obstruction and sensor fault. They run on the bridge and appear on the Rack node page. The flap and valve safety fixes run on the Arduino itself.
+  - Each channel reports mean ± sd, n and slope.
+- **Scan → evidence.** A front-inlet scan becomes a reference temperature compared against the installed sensor. A fan-mount scan becomes a vibration reference (flagged `ultrasonic_displacement_not_iso`). A drip-tray scan becomes liquid evidence. All feed the same four verdicts. A scan whose channel the rig flagged as untrusted is *inconclusive* and should be repeated.
+- **Vibration is a trend, not an ISO number.** The ultrasonic ping rate (~16 Hz per sensor) cannot resolve a 25 Hz shaft rate, so the reported frequency is aliased and the mm/s is indicative. The UI says so wherever it shows it.
+- **The rig's own rules** cover nine situations plus a catch-all: power loss, single fan failure, fan vibration, recirculation, cold-supply loss, coolant leak at the rack, outside water, obstruction and sensor fault. They run on the bridge and appear on the Rack node page. The flap and valve safety fixes run on the Arduino itself.
 
 ## NVIDIA Nemotron — the simulation director
 
@@ -122,7 +123,7 @@ operator ▶ plan 1: situation → rig + weather → engine what-ifs → queue b
 **Re-plans on its own.** When a scan the director queued comes back, the bridge applies the result to the director's snapshot and runs it again (up to 3 times per chain). The dashboard shows *Plan 2 · automatic re-plan after SCN-…* with what changed.
 
 On the fixture at 02:35:
-- **Plan 1** picks the BATT-B floor scan, with a decision value of 21.8: if wet, the first rack is lost in 19 min; if dry, no rack is lost within the hour.
+- **Plan 1** picks the BATT-B drip-tray scan, with a decision value of 21.8: if wet, the first rack is lost in 19 min; if dry, no rack is lost within the hour.
 - The scan comes back **wet**.
 - **Plan 2** moves the next scan to PIPE-L2 and proposes `valve close` (the rig's valve is open) plus a ticket for INC-1045. Both wait for approval.
 
@@ -155,7 +156,7 @@ On the fixture at 02:35:
 | Dependency graph and Monte Carlo clocks | Implemented, seeded and deterministic. Delay ranges carry their basis; most are **assumptions**. |
 | Thermal model | Lumped first-order model, **indicative, not CFD**. |
 | Water layer | Height-field diffusion on a 0.5 m grid. An **approximation** whose arrival times feed graph edges. |
-| Sensor ↔ app connection | **USB serial, JSON lines at 1 Hz** → bridge → SSE. Firmware in `hardware/` is **not yet compiled or flashed**; tested against the simulated rig only. |
+| Sensor ↔ app connection | **USB serial, JSON lines at 1 Hz** (protocol v2: probe, two ultrasonic vibration channels, drip tray) → bridge → SSE. Firmware in `hardware/` is **not yet compiled or flashed**; tested against the simulated rig only. |
 | Rig scans and rules | Implemented with tests. The live rig is untested until the hardware is flashed. |
 | Verification verdicts | Rules over four explicit states. Evidence comes from Rack Monitor scans, with labeled fixtures as a fallback. |
 | NVIDIA Nemotron director | Tool-calling agent with engine tools, the live NWS weather API, the rig, the scan queue and approval-gated rig commands / GitHub tickets. Re-plans automatically. Tested against a mocked endpoint and **run live** against `integrate.api.nvidia.com` (Nemotron 3.5 Lightning, 2026-11-07). The validator still strips any number no engine run produced. |

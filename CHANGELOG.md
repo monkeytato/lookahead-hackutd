@@ -3,6 +3,15 @@
 All changes to Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
+## 2026-11-07 · Rack Monitor v2: four sensors (branch `sensor-rework`)
+
+**Sensor set changed to what the final build carries**
+- 1 × DS18B20 temperature probe at the front inlet, 2 × HC-SR04 ultrasonic sensors aimed at the exhaust-fan mounts and used for **vibration**, 1 × water level sensor in the drip tray. The three acoustic-thermometry beams and the reservoir sensor are gone.
+- Protocol v2 (`src/domain/rig/protocol.ts`): `temp_c`, `vib.fan_a/fan_b` (`dist_mm`, `disp_mm`, `p2p_mm`, `freq_hz`, `vel_mm_s`, `n`), `drip_raw`, `pack_v`. Shared command regexes (`RIG_CMD_RE`, `SIM_CMD_RE`) and the `SIM_COMMANDS` list.
+- Firmware `2.0.0` rewritten: alternating 30 ms pings, 64-ping windows with median outlier rejection, linear detrend, zero-crossing apparent frequency and `2π·f·disp` indicative velocity. Safety fixes: inlet ≥ 1.5 °C over the calibrated baseline with the flap open → flap closes; wet tray with the valve open → valve closes. Still not compiled.
+- Simulator, scan summarizer, the nine rig rules (+ catch-all), scan → evidence mapping, director tools (`vibration_mm_s` is now rig-measurable), scanner app, Rack node page, phone dashboard and Inspector all follow the new frame. 188 tests.
+- The vibration reading is labelled indicative everywhere: ~16 Hz sampling aliases a 25 Hz shaft rate, so `freq_hz` is apparent and the mm/s is a trend number, not an ISO 10816 measurement.
+
 ## 2026-11-07 · Live presentation: phone remote, random and real disasters, fixes, a growing 3D twin
 
 **Present from two devices**

@@ -3,17 +3,15 @@ import type { ImpactClock, Task } from '../../src/domain/types';
 import type { StampedFrame } from '../../src/domain/rig/protocol';
 import { seedTasks } from '../../src/domain/fixture';
 import {
-  ageText, clockSeverity, clockText, deltaT, nextClock, rigTiles, sortTasks, sparkRange, sparkSegments, taskBucket, taskCounts,
+  ageText, clockSeverity, clockText, maxVib, nextClock, rigTiles, sortTasks, sparkRange, sparkSegments, taskBucket, taskCounts,
 } from '../../src/mobile/derive';
 
 const clock = (p10: number | null, p50: number | null, p90: number | null): ImpactClock => ({ assetId: 'A-11', p10, p50, p90, probWithinHorizon: 0.5, path: ['CRAH-2', 'A-11'] });
 
+const vib = (vel: number | null, hz: number | null = vel == null ? null : 25) => ({ dist_mm: 42, disp_mm: vel == null ? null : vel / 157, p2p_mm: null, freq_hz: hz, vel_mm_s: vel, n: 60 });
 const frame = (over: Partial<StampedFrame> = {}): StampedFrame => ({
-  v: 1, dev: 'RACKMON-SIM', fw: 'sim', seq: 1, up_ms: 1000,
-  inlet_top_c: 22.4, inlet_bottom_c: 22.6, outlet_c: 31.5,
-  echo_us: { inlet_top: 1040, inlet_bottom: 1040, outlet: 1020 },
-  beam_age_s: { inlet_top: 1.2, inlet_bottom: 3.6, outlet: 0.4 },
-  ref_c: 22.5, reservoir_raw: 400, floor_raw: 3, pack_v: 8.91,
+  v: 2, dev: 'RACKMON-SIM', fw: 'sim', seq: 1, up_ms: 1000,
+  temp_c: 22.4, vib: { fan_a: vib(1.2), fan_b: vib(1.4) }, drip_raw: 3, pack_v: 8.91,
   flap: 'open', valve: 'open', fan_pct: [55, 55], auto: true, flags: [], event: null,
   source: 'simulated', at: '2026-11-07T08:00:00.000Z', ...over,
 });
@@ -65,21 +63,23 @@ describe('tasks', () => {
 });
 
 describe('rigTiles', () => {
-  it('reports frame values as-is and flags only a wet floor', () => {
+  it('reports frame values as-is and flags a wet tray or loud fan', () => {
     const tiles = rigTiles(frame());
-    expect(tiles.find((t) => t.key === 'inlet_top')!.value).toBe('22.4');
+    expect(tiles.find((t) => t.key === 'temp')!.value).toBe('22.4');
     expect(tiles.every((t) => !t.abnormal)).toBe(true);
-    const wet = rigTiles(frame({ floor_raw: 300 })).find((t) => t.key === 'floor')!;
+    const wet = rigTiles(frame({ drip_raw: 300 })).find((t) => t.key === 'drip')!;
     expect(wet).toMatchObject({ value: 'WET', abnormal: true });
+    const loud = rigTiles(frame({ vib: { fan_a: vib(1.2), fan_b: vib(4.5) } })).find((t) => t.key === 'vib_b')!;
+    expect(loud).toMatchObject({ value: '4.5', abnormal: true });
   });
   it('renders null channels as missing, never zero', () => {
-    const tiles = rigTiles(frame({ ref_c: null, outlet_c: null, pack_v: null }));
-    for (const k of ['ref', 'outlet', 'pack']) expect(tiles.find((t) => t.key === k)).toMatchObject({ value: '—', missing: true });
-    expect(tiles.find((t) => t.key === 'ref')!.sub).toBe('not fitted');
+    const tiles = rigTiles(frame({ temp_c: null, vib: { fan_a: vib(null), fan_b: vib(1.4) }, pack_v: null }));
+    for (const k of ['temp', 'vib_a', 'pack']) expect(tiles.find((t) => t.key === k)).toMatchObject({ value: '—', missing: true });
+    expect(tiles.find((t) => t.key === 'temp')!.sub).toBe('probe missing');
   });
-  it('computes ΔT only when all three beams report', () => {
-    expect(deltaT(frame())).toBe(9);
-    expect(deltaT(frame({ inlet_top_c: null }))).toBeNull();
+  it('maxVib takes the louder fan and is null when neither reports', () => {
+    expect(maxVib(frame())).toBe(1.4);
+    expect(maxVib(frame({ vib: { fan_a: vib(null), fan_b: vib(null) } }))).toBeNull();
   });
 });
 

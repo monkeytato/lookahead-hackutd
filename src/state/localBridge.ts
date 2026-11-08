@@ -14,7 +14,7 @@ import type { HttpLike } from '../../server/director/external';
 import type { PendingAction } from '../../server/director/types';
 import { DEFAULT_MODEL, DEFAULT_BASE_URL } from '../../server/director/nemotron';
 import { diagnose, followUp } from '../domain/rig/diagnose';
-import { MIN_HOLD_S, TARGET_HOLD_S, type BridgeStatus, type RigEvent, type RigFrame, type Scan, type ScanRequest, type StampedFrame } from '../domain/rig/protocol';
+import { MIN_HOLD_S, RIG_CMD_RE, SIM_CMD_RE, TARGET_HOLD_S, type BridgeStatus, type RigEvent, type RigFrame, type Scan, type ScanRequest, type StampedFrame } from '../domain/rig/protocol';
 import { summarizeScan } from '../domain/rig/scan';
 import { SimRig } from '../domain/rig/simDevice';
 import { getScenario } from '../domain/scenarios';
@@ -26,8 +26,8 @@ export interface LocalResponse { status: number; body: unknown }
 const STORE_KEY = 'lookahead.localBridge.v1';
 const MAX_FRAMES = 900;
 
-const RIG_CMD = /^(flap (open|close)|valve (open|close)|fan \d{1,3} \d{1,3}|auto (on|off)|cal|ping)$/;
-const SIM_CMD = /^sim (power (off|on)|fault (inlet_top|clear)|heat (high|normal)|fan_a (fail|ok)|block outlet|unblock|supply (loss|ok)|leak (remote|stop)|spill|dry)$/;
+const RIG_CMD = RIG_CMD_RE;
+const SIM_CMD = SIM_CMD_RE;
 
 interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[] }
 
