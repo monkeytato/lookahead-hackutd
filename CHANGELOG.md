@@ -3,6 +3,14 @@
 All changes to CenterGuard, formerly Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
+## 2026-11-08 · The demo reference now counts as verified
+
+- "Collect independent sensor evidence" now ticks itself with **any conclusive evidence**: a live or simulated scan, or the labelled demo reference ("Attach labelled demo reference"). Team decision, so a walkthrough without hardware closes cleanly instead of being flagged red.
+- It stays unchecked, and the close is flagged, with no evidence or with an inconclusive scan. The hint for the demo reference case is gone.
+- The demo reference is still labelled as a scripted fixture in History, the handoff and its evidence note; it is not presented as a measurement. `hasIndependentEvidence` is unchanged; the new `hasConclusiveEvidence` drives the step.
+- The iOS controller already showed the step as done from its stored flag, so it now agrees with the laptop.
+- ✓ 309 tests passing · typecheck clean · artifact rebuilt.
+
 ## 2026-11-08 · Landing page: Evidence section with every prediction chart
 
 - New **Evidence** section on the landing page (nav link "Evidence", between "Why the clock matters" and the final button). It opens with four numbers: 2,048 physics trials per response option, 0 numbers written by Nemotron, under 1 °C error on an independent published restart, and 82 % / 52 % p10–p90 coverage against the model's own and widened priors (target 80 %).
@@ -24,7 +32,7 @@ Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 - Everything else moved under one **Details** fold: the director's summary, figures, basis, P(real), stress regions and hypotheses. Analyses stored before this change keep their old figures.
 
 **Verify step (the auto-flag)**
-- `stepDone` now ticks "Collect independent sensor evidence" exactly while a conclusive live or simulated scan is attached, so a stored flag can no longer leave it stuck unchecked after a valid scan. A demo reference or an inconclusive scan still does not count.
+- `stepDone` now ticks "Collect independent sensor evidence" exactly while a conclusive live or simulated scan is attached, so a stored flag can no longer leave it stuck unchecked after a valid scan. An inconclusive scan does not count. (A demo reference did not count at first; see the entry above.)
 - The hint next to it now says why: "demo reference does not count, take a scan" or "inconclusive, repeat the measurement".
 - A scan that arrived while another command was in flight was silently never attached. It is now retried.
 - Still by design: a chiller (heat) incident's verify step can never pass, because the rig cannot measure chilled water.
