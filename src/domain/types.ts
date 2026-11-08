@@ -296,7 +296,48 @@ export interface AssetVisualState {
   wet?: boolean;
   /** Paint state but no floating label (e.g. a rack that is only downstream of a clock) — avoids label soup */
   quiet?: boolean;
+  /** Modeled as lost at this scrub time (p50 loss time reached and not restored) */
+  lost?: boolean;
+  /** A fix took effect on this asset at or before this time: show it recovering / protected */
+  restored?: boolean;
+  /** Inside an active fire/smoke hazard front at this time */
+  burning?: boolean;
 }
+
+/** Operator remediation. The engine treats `assetId` as repaired from `effectiveAt` on:
+ *  it stops failing, stops propagating loss, and a leak at it stops adding water. */
+export type FixAction =
+  | 'isolate_valve' | 'restart_chiller' | 'swap_crah' | 'reset_fan' | 'manual_gen_start'
+  | 'transfer_ups' | 'suppress_fire' | 'reset_breaker' | 'shed_load' | 'deploy_portable_cooling';
+
+export interface Fix {
+  id: ID;
+  assetId: ID;
+  action: FixAction;
+  label: string;
+  /** Scenario minute the fix was ordered */
+  orderedAt: number;
+  /** Scenario minute it takes effect (orderedAt + travel/work time) */
+  effectiveAt: number;
+}
+
+/** A spreading physical hazard other than water (water keeps its own height-field layer). */
+export interface Hazard {
+  kind: 'fire' | 'smoke';
+  /** Where it starts: an asset id, and its floor position */
+  originAssetId: ID;
+  x: number;
+  z: number;
+  startT: number;
+  /** Front speed, metres per minute (assumption, shown in the basis) */
+  spreadMPerMin: number;
+  maxRadiusM: number;
+  /** Zones it can reach (fire stays in rated rooms; smoke can travel further) */
+  zoneIds: ID[];
+}
+
+/** One hazard's footprint at a scrub time, for the 3D twin. */
+export interface HazardFrame { kind: Hazard['kind']; x: number; z: number; radiusM: number; originAssetId: ID; contained: boolean }
 
 export interface WaterFrame {
   /** Minutes since leak start */
@@ -335,6 +376,13 @@ export interface Scenario {
   faults: { assetId: ID; t: number }[];
   leak?: { x: number; z: number; ratePerMin: number; startT: number };
   steps: ScenarioStep[];
+  /** 'real' = adapted from a public incident report; 'random' = generated; 'what-if' = engineering case */
+  kind?: 'real' | 'random' | 'what-if';
+  hazards?: Hazard[];
+  /** Incidents the engine raises during this scenario (opened when the clock passes openedAt) */
+  incidents?: Incident[];
+  /** One-line headline for the presenter screen, e.g. "Chilled-water riser leak reaches the battery room" */
+  headline?: string;
 }
 
 export interface Facility {

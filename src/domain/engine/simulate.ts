@@ -13,7 +13,7 @@
  *     last value) until their asset is lost — otherwise every sensor would look stale after ~10 min.
  */
 import type {
-  AssetVisualState, DependencyEdge, Facility, Freshness, ID, ImpactClock, Reading, Scenario, ScenarioStep, Severity, WaterGrid,
+  AssetVisualState, DependencyEdge, Facility, Fix, Freshness, HazardFrame, ID, ImpactClock, Reading, Scenario, ScenarioStep, Severity, WaterGrid,
 } from '../types';
 import { runCascade } from './cascade';
 import { freshness, latestReadings, maxSeverity, severityFor } from './readings';
@@ -26,6 +26,8 @@ export interface ScenarioRunInput {
   seedReadings: Reading[];
   extraEdges?: DependencyEdge[];
   extraFaults?: { assetId: ID; t: number }[];
+  /** Operator fixes: each asset is repaired from fix.effectiveAt on (see Fix in types.ts) */
+  fixes?: Fix[];
   /** Monte Carlo runs (default 400) and seed (default 7) */
   runs?: number;
   seed?: number;
@@ -40,6 +42,10 @@ export interface ScenarioRun {
   readingsAt(t: number): Reading[];
   visualAt(t: number): Record<ID, AssetVisualState>;
   stepsUntil(t: number): ScenarioStep[];
+  /** Fire/smoke footprints at time t (empty when the scenario has no hazards) */
+  hazardAt(t: number): HazardFrame[];
+  /** Asset id → minute a fix takes effect on it */
+  restoredAt: Record<ID, number>;
 }
 
 const UNITS: Partial<Record<Reading['metric'], string>> = {
@@ -227,5 +233,9 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
 
   const stepsUntil = (t: number) => scenario.steps.filter((s) => s.t <= t);
 
-  return { clocks, water, waterArrival: arrival, derivedEdges, readingsAt, visualAt, stepsUntil };
+  const restoredAt: Record<ID, number> = {};
+  for (const f of input.fixes ?? []) restoredAt[f.assetId] = Math.min(restoredAt[f.assetId] ?? Infinity, f.effectiveAt);
+  const hazardAt = (_t: number): HazardFrame[] => []; // TODO(engine agent): hazards
+
+  return { clocks, water, waterArrival: arrival, derivedEdges, readingsAt, visualAt, stepsUntil, hazardAt, restoredAt };
 }

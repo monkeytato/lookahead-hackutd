@@ -18,3 +18,5 @@ export { buildHandoff, handoffToMarkdown } from './handoff';
 export type { HandoffNote, HandoffInput } from './handoff';
 export { simulateScenario } from './simulate';
 export type { ScenarioRun, ScenarioRunInput } from './simulate';
+export { fixOptionsFor, makeFix, predictFix } from './fixes';
+export type { FixOption, FixPrediction, FixContext } from './fixes';
