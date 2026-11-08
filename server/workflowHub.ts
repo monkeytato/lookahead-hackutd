@@ -29,7 +29,7 @@ interface Deps {
   plan(input: DirectorInput): Promise<DirectorResult>;
 }
 export function createWorkflowHub(d: Deps) {
-  let state = d.initial?.version === 1 ? d.initial : emptyWork();
+  let state: WorkState = d.initial?.version === 1 ? { ...d.initial, tasks: d.initial.tasks ?? [] } : emptyWork();
   let analyzing = false;
   const apply = (cmd: WorkCommand, actor: string) => {
     state = changeWork(state, cmd, actor.slice(0,80), new Date().toISOString(), globalThis.crypto.randomUUID());
@@ -82,6 +82,13 @@ export function createWorkflowHub(d: Deps) {
           return apply({ type: 'check', issueId, stepId: body.stepId, done: body.done }, actor);
         case 'resolve':
           return apply({ type: 'resolve', issueId, note: typeof body.note === 'string' ? body.note : '' }, actor);
+        case 'create_task':
+          return apply({ type: 'create_task', issueId }, actor);
+        case 'delete_issue':
+          return apply({ type: 'delete_issue', issueId }, actor);
+        case 'check_task':
+          if (typeof body.taskId !== 'string' || typeof body.stepId !== 'string' || typeof body.done !== 'boolean') throw new Error('Task, step and boolean result required');
+          return apply({ type: 'check_task', taskId: body.taskId, stepId: body.stepId, done: body.done }, actor);
         case 'verify_scan': {
           const i = find(issueId), scan = d.scans().find(x => x.id === body.scanId);
           if (!scan || scan.assetId !== i.assetId || scan.status !== 'complete' || Date.now() - Date.parse(scan.endedAt) > 120_000 || Date.parse(scan.startedAt) < Date.parse(i.createdAt)) throw new Error('Take a complete recent scan at this equipment after the warning');

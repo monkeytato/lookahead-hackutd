@@ -3,6 +3,13 @@
 All changes to CenterGuard, formerly Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
+## 2026-11-08 · Handoff follow-ups and a tighter landing page
+
+- Removed the landing hero eyebrow "Data center operations" and the full "Incident example / Two warnings at once" comparison section.
+- The "Collect independent sensor evidence" step now fills itself with the attached reading (for example, "22.5 °C attached") and stays checked once any measurement exists. Inconclusive evidence remains a visible handoff gap for a repeat measurement.
+- Handoff now lets the operator resolve an incident by carrying every open checklist step into a follow-up task, or by deleting the incident (and any linked task) after an in-page confirmation.
+- Follow-up tasks appear on Team response with their remaining actions, and open task steps appear in the handoff gap review.
+
 ## 2026-11-08 · The demo reference now counts as verified
 
 - "Collect independent sensor evidence" now ticks itself with **any conclusive evidence**: a live or simulated scan, or the labelled demo reference ("Attach labelled demo reference"). Team decision, so a walkthrough without hardware closes cleanly instead of being flagged red.

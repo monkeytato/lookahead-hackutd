@@ -73,13 +73,14 @@ describe('incomplete-submission flags: one rule for every path', () => {
     }
   });
 
-  it('flags a step reopened after evidence, and verification undone by a later inconclusive scan', () => {
+  it('flags a reopened step while still counting collected inconclusive evidence as verification', () => {
     const { d, id } = ready();
     d.send({ type: 'evidence', issueId: id, evidence: reading('confirmed') });
     d.send({ type: 'check', issueId: id, stepId: 'recheck', done: false });
     d.send({ type: 'evidence', issueId: id, evidence: reading('inconclusive') });
     d.send({ type: 'resolve', issueId: id, note: 'Leaving it for the day shift to recheck.' });
-    expect(d.state.issues[0].incomplete).toEqual(['Collect independent sensor evidence', 'Recheck equipment and record outcome']);
+    expect(d.state.issues[0].incomplete).toEqual(['Recheck equipment and record outcome']);
+    expect(reviewWork(d.state)).toContain(`${d.state.issues[0].assetId}: closed with inconclusive evidence; repeat the measurement.`);
   });
 
   it('counts stored sessions verified by the demo reference, whatever their stored flag', () => {
@@ -105,7 +106,7 @@ describe('incomplete-submission flags: one rule for every path', () => {
     expect(reviewWork(h.snapshot()).some(g => /checklist/.test(g))).toBe(true); // the other three steps are still open
   });
 
-  it('verify follows the current evidence, not a stale stored flag', () => {
+  it('keeps verification complete once a measurement is attached, including inconclusive evidence', () => {
     const { d, id } = ready();
     const verifyDone = () => { const i = d.state.issues[0]; return stepDone(i, i.steps.find(s => s.id === 'verify')!); };
     d.send({ type: 'evidence', issueId: id, evidence: reading('confirmed', 'simulated') });
@@ -115,15 +116,14 @@ describe('incomplete-submission flags: one rule for every path', () => {
     const stale = structuredClone(d.state); stale.issues[0].steps.find(s => s.id === 'verify')!.done = false;
     expect(uncheckedSteps(stale.issues[0])).toEqual([]);
     expect(changeWork(stale, { type: 'resolve', issueId: id, note: 'Closed from an older saved session.' }, 'Test', new Date().toISOString(), 'x-3').issues[0].incomplete).toBeUndefined();
-    // A later inconclusive scan unticks it; the demo reference ticks it again; an inconclusive scan unticks it.
+    // Collection remains complete, but inconclusive evidence stays visible as a handoff gap.
     d.send({ type: 'evidence', issueId: id, evidence: reading('inconclusive', 'live') });
-    expect(verifyDone()).toBe(false);
-    expect(uncheckedSteps(d.state.issues[0])).toEqual(['Collect independent sensor evidence']);
+    expect(verifyDone()).toBe(true);
+    expect(uncheckedSteps(d.state.issues[0])).toEqual([]);
+    expect(reviewWork(d.state)).toContain(`${d.state.issues[0].assetId}: evidence is inconclusive; repeat the measurement.`);
     d.send({ type: 'verify_fixture', issueId: id });
     expect(verifyDone()).toBe(true);
     expect(uncheckedSteps(d.state.issues[0])).toEqual([]);
-    d.send({ type: 'evidence', issueId: id, evidence: reading('inconclusive', 'live') });
-    expect(verifyDone()).toBe(false);
     d.send({ type: 'evidence', issueId: id, evidence: reading('disagrees', 'live') });
     expect(verifyDone()).toBe(true);
   });
@@ -249,5 +249,40 @@ describe('static artifact bridge mirrors the laptop bridge', () => {
     expect(a.issues[0].incomplete).toEqual(['Record inspection or response performed', 'Recheck equipment and record outcome']);
     expect(a.issues[0].incomplete).toEqual(b.issues[0].incomplete);
     expect(a.events.map(e => [e.kind, e.flag, e.source])).toEqual(b.events.map(e => [e.kind, e.flag, e.source]));
+  });
+});
+
+describe('handoff follow-up tasks', () => {
+  function ready() {
+    const d = driver(); d.send({ type: 'simulate_error', kind: 'water' }); const id = d.state.issues[0].id;
+    d.send({ type: 'assign', issueId: id, employeeId: 'emp-marcus' });
+    for (const stepId of ['locate', 'act', 'recheck']) d.send({ type: 'check', issueId: id, stepId, done: true });
+    return { d, id };
+  }
+
+  it('carries every open step into a follow-up task and removes the closed gap from the incident', () => {
+    const { d, id } = ready();
+    d.send({ type: 'create_task', issueId: id });
+    const issue = d.state.issues[0], task = d.state.tasks[0];
+    expect(issue.status).toBe('resolved');
+    expect(issue.incomplete).toBeUndefined();
+    expect(issue.resolution).toMatch(/follow-up task/);
+    expect(task).toMatchObject({ issueId: id, assetId: 'PIPE-L2', status: 'open', title: 'Follow-up · Possible chilled-water leak' });
+    expect(task.steps.map(s => s.label)).toEqual(['Collect independent sensor evidence']);
+    expect(reviewWork(d.state)).toContain('PIPE-L2: follow-up task ' + task.id + ' has 1 open step: Collect independent sensor evidence.');
+
+    d.send({ type: 'check_task', taskId: task.id, stepId: 'verify', done: true });
+    expect(d.state.tasks[0].status).toBe('complete');
+    expect(reviewWork(d.state)).toEqual([]);
+  });
+
+  it('deletes an incident and any linked follow-up task from the handoff', () => {
+    const { d, id } = ready();
+    d.send({ type: 'create_task', issueId: id });
+    d.send({ type: 'delete_issue', issueId: id });
+    expect(d.state.issues).toEqual([]);
+    expect(d.state.tasks).toEqual([]);
+    expect(reviewWork(d.state)).toEqual([]);
+    expect(d.state.events.at(-1)).toMatchObject({ kind: 'deletion', source: 'operator deletion', issueId: id });
   });
 });

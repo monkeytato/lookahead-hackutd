@@ -14,6 +14,12 @@ export interface WorkIssue {
   /** Labels of checklist steps left unchecked when the outcome was submitted. Absent on complete closes. */
   incomplete?: string[];
 }
+/** Work carried out of a shift handoff. Each step is one action that was still open on the incident. */
+export interface FollowUpTask {
+  id: string; issueId: string; assetId: string; kind: ErrorKind; title: string; location: string;
+  createdAt: string; status: 'open' | 'complete';
+  steps: { id: string; label: string; done: boolean }[];
+}
 export interface WorkEvent { id: string; at: string; actor: string; issueId?: string; assetId?: string; kind: string; summary: string; source: string; flag?: 'incomplete' }
 export interface WorkAnalysis { issueId: string; provider: string; summary: string; nextAction: string; at: string; runs: number; warnings: string[]; comparison?: { action: string; without: number; with: number; saved: number; assumptions: string; ensemble?: EnsembleComparison } }
 
@@ -46,14 +52,14 @@ export interface EnsembleComparison {
   /** what each number rests on */
   basis: string;
 }
-export interface WorkState { version: 1; revision: number; issues: WorkIssue[]; events: WorkEvent[]; analyses: WorkAnalysis[] }
+export interface WorkState { version: 1; revision: number; issues: WorkIssue[]; tasks: FollowUpTask[]; events: WorkEvent[]; analyses: WorkAnalysis[] }
 export const ERROR_CHOICES: { id: ErrorKind; title: string; hint: string }[] = [
   { id: 'sensor', title: 'Temperature alert', hint: 'A-11 · independent reading may disagree' },
   { id: 'heat', title: 'Cooling failure', hint: 'CH-1 · check downstream cooling risk' },
   { id: 'water', title: 'Water leak', hint: 'PIPE-L2 · water moving toward power equipment' },
   { id: 'vibration', title: 'Fan vibration', hint: 'CRAH-2 · inspect before replacing equipment' },
 ];
-export function emptyWork(): WorkState { return { version: 1, revision: 0, issues: [], events: [], analyses: [] }; }
+export function emptyWork(): WorkState { return { version: 1, revision: 0, issues: [], tasks: [], events: [], analyses: [] }; }
 export const CATALOG: Record<ErrorKind, { assetId: string; title: string; location: string; installed: number; unit: string }> = {
   sensor: { assetId: 'A-11', title: 'Rack inlet temperature is high', location: 'Hall A · Row A · Rack 11 · front inlet', installed: 34.2, unit: '°C' },
   heat: { assetId: 'CH-1', title: 'Chiller supply temperature is high', location: 'Mechanical yard · Chiller 1', installed: 30.8, unit: '°C' },
@@ -69,6 +75,9 @@ export type WorkCommand =
   | { type: 'assign'; issueId: string; employeeId: string }
   | { type: 'check'; issueId: string; stepId: string; done: boolean }
   | { type: 'resolve'; issueId: string; note: string }
+  | { type: 'create_task'; issueId: string }
+  | { type: 'delete_issue'; issueId: string }
+  | { type: 'check_task'; taskId: string; stepId: string; done: boolean }
   | { type: 'analysis'; analysis: WorkAnalysis }
   | { type: 'note'; issueId?: string; text: string }
   | { type: 'review' }
@@ -84,12 +93,12 @@ export function hasConclusiveEvidence(i: WorkIssue): boolean {
 }
 /**
  * Whether a checklist step counts as done. `verify` is not operator-tickable: it follows the attached
- * evidence alone — done exactly while conclusive evidence is attached, including the labelled demo
- * reference (team decision 2026-11-08, so a walkthrough without hardware can close cleanly) — and
- * unchecked with no evidence or an inconclusive scan.
+ * evidence alone — done once a reading is attached, including the labelled demo reference and an
+ * inconclusive scan. The evidence verdict is evaluated separately in `reviewWork`, so collecting the
+ * reading and trusting the reading remain different decisions.
  */
 export function stepDone(i: WorkIssue, step: WorkIssue['steps'][number]): boolean {
-  return step.id === 'verify' ? hasConclusiveEvidence(i) : step.done;
+  return step.id === 'verify' ? !!i.evidence : step.done;
 }
 /** Steps that would be left unchecked if the issue were closed now: the one rule the reducer, handoff review and every view use. */
 export function uncheckedSteps(i: WorkIssue): string[] {
@@ -112,17 +121,25 @@ function installedFor(assetId: string, kind: ErrorKind): { installed: number; un
 export function reviewWork(s: WorkState): string[] {
   const closedIncomplete = s.issues.filter(i => i.status === 'resolved' && i.incomplete?.length)
     .map(i => `${i.assetId}: closed with ${i.incomplete!.length} unchecked step${i.incomplete!.length === 1 ? '' : 's'}: ${i.incomplete!.join('; ')}.`);
+  const closedInconclusive = s.issues.filter(i => i.status === 'resolved' && i.evidence?.verdict === 'inconclusive')
+    .map(i => `${i.assetId}: closed with inconclusive evidence; repeat the measurement.`);
   return [...s.issues.filter(i => i.status !== 'resolved').flatMap(i => [
     ...(!i.evidence ? [`${i.assetId}: independent evidence is missing.`] : []),
+    ...(i.evidence?.verdict === 'inconclusive' ? [`${i.assetId}: evidence is inconclusive; repeat the measurement.`] : []),
     ...(!i.ownerId ? [`${i.assetId}: no technician owns the next step.`] : []),
     ...(uncheckedSteps(i).length ? [`${i.assetId}: checklist is incomplete.`] : []),
     ...(i.evidence?.verdict === 'disagrees' ? [`${i.assetId}: readings disagree; inspect sensor placement/calibration before changing equipment.`] : []),
-  ]), ...closedIncomplete];
+  ]), ...closedIncomplete, ...closedInconclusive,
+    ...(s.tasks ?? []).filter(t => t.status === 'open').map(t => {
+      const open = t.steps.filter(x => !x.done).map(x => x.label);
+      return `${t.assetId}: follow-up task ${t.id} has ${open.length} open step${open.length === 1 ? '' : 's'}${open.length ? `: ${open.join('; ')}` : ''}.`;
+    })];
 }
 
 /** Pure reducer: timestamps/ids are injected for repeatable lifecycle tests. */
 export function changeWork(state: WorkState, command: WorkCommand, actor: string, at: string, uid: string): WorkState {
   const s = structuredClone(state);
+  s.tasks ??= [];
   const log = (kind: string, summary: string, source = 'operator', issue?: WorkIssue, flag?: WorkEvent['flag']) => s.events.push({ id: uid, at, actor, kind, summary, source, issueId: issue?.id, assetId: issue?.assetId, ...(flag ? { flag } : {}) });
   if (command.type === 'reset') {
     const fresh = emptyWork(); fresh.revision = state.revision + 1;
@@ -154,6 +171,39 @@ export function changeWork(state: WorkState, command: WorkCommand, actor: string
   } else if (command.type === 'analysis') {
     s.analyses.push(command.analysis);
     log('analysis', command.analysis.summary, command.analysis.provider, s.issues.find(i => i.id === command.analysis.issueId));
+  } else if (command.type === 'create_task') {
+    const i = s.issues.find(x => x.id === command.issueId);
+    if (!i) throw new Error('Incident not found');
+    if (s.tasks.some(t => t.issueId === i.id && t.status === 'open')) throw new Error('A follow-up task is already open for this incident');
+    const open = i.steps.filter(step => !stepDone(i, step));
+    if (!open.length) throw new Error('This incident has no unchecked steps to carry forward');
+    const task: FollowUpTask = {
+      id: `TSK-${uid.slice(0, 8)}`, issueId: i.id, assetId: i.assetId, kind: i.kind,
+      title: `Follow-up · ${i.title}`, location: i.location, createdAt: at, status: 'open',
+      steps: open.map(step => ({ id: step.id, label: step.label, done: false })),
+    };
+    s.tasks.push(task);
+    i.status = 'resolved';
+    i.incomplete = undefined;
+    i.resolution = `Moved ${open.length} open step${open.length === 1 ? '' : 's'} to follow-up task ${task.id}.`;
+    log('task', `${i.assetId}: ${i.title}. Follow-up task ${task.id} created with ${open.map(x => x.label).join('; ')}.`, 'shift-handoff task', i);
+  } else if (command.type === 'delete_issue') {
+    const i = s.issues.find(x => x.id === command.issueId);
+    if (!i) throw new Error('Incident not found');
+    const linked = s.tasks.filter(t => t.issueId === i.id);
+    s.issues = s.issues.filter(x => x.id !== i.id);
+    s.analyses = s.analyses.filter(a => a.issueId !== i.id);
+    s.tasks = s.tasks.filter(t => t.issueId !== i.id);
+    log('deletion', `${i.assetId}: ${i.title}. Deleted from the shift handoff${linked.length ? ` with ${linked.length} linked follow-up task${linked.length === 1 ? '' : 's'}` : ''}.`, 'operator deletion', i);
+  } else if (command.type === 'check_task') {
+    const task = s.tasks.find(t => t.id === command.taskId);
+    if (!task) throw new Error('Follow-up task not found');
+    const step = task.steps.find(x => x.id === command.stepId);
+    if (!step) throw new Error('Unknown task step');
+    step.done = command.done;
+    task.status = task.steps.every(x => x.done) ? 'complete' : 'open';
+    const i = s.issues.find(x => x.id === task.issueId);
+    log('task', `${task.assetId}: ${command.done ? 'Completed' : 'Reopened'} “${step.label}” on follow-up task ${task.id}.`, 'operator', i);
   } else {
     const i = s.issues.find(i => i.id === command.issueId);
     if (!i) throw new Error('Incident not found');
@@ -198,6 +248,6 @@ export function changeWork(state: WorkState, command: WorkCommand, actor: string
       }
     }
   }
-  s.events = s.events.slice(-250); s.analyses = s.analyses.slice(-25); s.revision++;
+  s.events = s.events.slice(-250); s.analyses = s.analyses.slice(-25); s.tasks = s.tasks.slice(-40); s.revision++;
   return s;
 }

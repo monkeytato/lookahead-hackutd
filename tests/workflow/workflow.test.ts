@@ -51,14 +51,15 @@ describe('shared incident lifecycle', () => {
     expect(reviewWork(d.state)).toEqual([`${issue.assetId}: closed with 3 unchecked steps: Collect independent sensor evidence; Record inspection or response performed; Recheck equipment and record outcome.`]);
     d.send({ type: 'review' }); expect(d.state.events.at(-1)?.summary).toMatch(/closed with 3 unchecked steps/);
   });
-  it('treats inconclusive evidence as an unchecked verification step', () => {
+  it('records inconclusive evidence as collected, but keeps it visibly open for repeat', () => {
     const d = driver(); d.send({ type: 'simulate_error', kind: 'sensor' }); const id = d.state.issues[0].id;
     d.send({ type: 'assign', issueId: id, employeeId: 'emp-marcus' });
     d.send({ type: 'evidence', issueId: id, evidence: { value: 30, unit: '°C', source: 'simulated', scanId: 'S-1', at: new Date().toISOString(), verdict: 'inconclusive', note: 'noisy' } });
     for (const stepId of ['locate','act','recheck']) d.send({ type: 'check', issueId: id, stepId, done: true });
     d.send({ type: 'resolve', issueId: id, note: 'Closed pending a better scan tomorrow.' });
-    expect(d.state.issues[0].incomplete).toEqual(['Collect independent sensor evidence']);
-    expect(d.state.events.at(-1)?.summary).toMatch(/1 unchecked step \(/);
+    expect(d.state.issues[0].incomplete).toBeUndefined();
+    expect(d.state.events.at(-1)?.flag).toBeUndefined();
+    expect(reviewWork(d.state)).toEqual([`${d.state.issues[0].assetId}: closed with inconclusive evidence; repeat the measurement.`]);
   });
   it('loads stored state written before the incomplete fields existed', () => {
     const legacy = JSON.parse(JSON.stringify(driver().send({ type: 'simulate_error', kind: 'heat' })));

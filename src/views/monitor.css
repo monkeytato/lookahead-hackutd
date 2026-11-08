@@ -18,11 +18,10 @@
 .mw-heading-actions { display:flex; align-items:center; gap:18px; }
 .mw-source { color:var(--mw-muted); font-size:12px; }
 .mw-offline { color:#a53a1d; font-size:12px; }
-.mw-summary { display:flex; gap:0; padding:16px 26px; background:white; border-bottom:1px solid var(--mw-line); flex-wrap:wrap; }
-.mw-summary > div { display:grid; gap:3px; padding-right:32px; margin-right:30px; border-right:1px solid var(--mw-line); }
-.mw-summary > div:last-child { border:0; padding-right:0; margin-right:0; }
-.mw-summary b { font-size:17px; font-weight:600; }
-.mw-summary span { font-size:12px; color:var(--mw-muted); }
+.mw-summary { display:flex; align-items:baseline; gap:14px; padding:16px 26px; background:white; border-bottom:1px solid var(--mw-line); flex-wrap:wrap; }
+.mw-summary > div { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+.mw-summary b { font-size:18px; font-weight:600; }
+.mw-summary span { font-size:13px; color:var(--mw-muted); }
 .mw-demo { padding:16px 26px; display:flex; align-items:center; gap:9px; flex-wrap:wrap; background:#edf4ee; border-bottom:1px solid var(--mw-line); }
 .mw-demo p { color:var(--mw-muted); font-size:12px; }
 .mw-demo > div { margin-right:14px; }
@@ -95,9 +94,19 @@
 .mw-handoff h3 { font-size:17px; margin-bottom:14px; }
 .mw-handoff h4 { margin-top:15px; font-size:14px; }
 .mw-handoff p,.mw-handoff li { font-size:13px; line-height:1.7; }
+.mw-handoff-lead { margin:-4px 0 14px; color:var(--mw-muted); }
+.mw-handoff-open { margin-top:8px; padding:8px 10px; background:#f6f4ef; border-left:3px solid #a65318; }
+.mw-handoff-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.mw-handoff-actions button { min-height:32px; padding:5px 10px; font-size:12px; }
+.mw-handoff-actions .mw-danger { border-color:#da1e28; color:#a2191f; }
+.mw-handoff-actions .mw-danger:hover { background:#fff1f1; border-color:#a2191f; }
+.mw-handoff-actions .mw-cancel { color:var(--mw-muted); }
+.mw-handoff-task { margin-top:12px; padding:10px 12px; background:#f6f4ef; border-left:3px solid #007e73; }
+.mw-handoff-task ul { margin:6px 0 0; padding:0; list-style:none; }
+.mw-task.is-complete { border-left:3px solid #198038; }
 @media(min-width:1700px) { .mw-grid { grid-template-columns:280px minmax(500px,1fr) 410px; } }
-@media(max-width:1120px) { .mw-grid { grid-template-columns:230px minmax(0,1fr); } .mw-detail { grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; border-left:0; border-top:1px solid var(--mw-line); } .mw-detail-header { grid-column:1/-1; } .mw-map { position:relative; } .mw-summary { gap:15px; } .mw-summary > div { margin-right:8px; padding-right:14px; } .mw-summary > div:last-child { margin-left:0; } }
-@media(max-width:680px) { .mw-heading { padding:18px 16px; flex-wrap:wrap; gap:15px; } .mw h1 { font-size:24px; } .mw-heading-actions { width:100%; justify-content:space-between; } .mw-summary { padding:16px; gap:15px; } .mw-summary > div { border:0; margin-right:4px; padding-right:10px; } .mw-summary > div:first-child { width:100%; } .mw-grid { grid-template-columns:minmax(0,1fr); } .mw-map { grid-row:2; } .mw-issues { border-right:0; } .mw-prototype { margin:0; } .mw-map-canvas { height:350px; } .mw-detail { display:block; } .mw-handoff-grid { grid-template-columns:1fr; } .mw-history,.mw-handoff { padding:16px; } .mw-events li { gap:10px; padding:14px 10px; } .mw-events time { flex-basis:65px; } .mw-demo { padding:16px; } .mw-task-grid { padding:16px; grid-template-columns:1fr; } }
+@media(max-width:1120px) { .mw-grid { grid-template-columns:230px minmax(0,1fr); } .mw-detail { grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; border-left:0; border-top:1px solid var(--mw-line); } .mw-detail-header { grid-column:1/-1; } .mw-map { position:relative; } .mw-summary { gap:10px; } .mw-summary > div { gap:10px; } }
+@media(max-width:680px) { .mw-heading { padding:18px 16px; flex-wrap:wrap; gap:15px; } .mw h1 { font-size:24px; } .mw-heading-actions { width:100%; justify-content:space-between; } .mw-summary { padding:16px; gap:8px; } .mw-summary > div { gap:8px; } .mw-grid { grid-template-columns:minmax(0,1fr); } .mw-map { grid-row:2; } .mw-issues { border-right:0; } .mw-prototype { margin:0; } .mw-map-canvas { height:350px; } .mw-detail { display:block; } .mw-handoff-grid { grid-template-columns:1fr; } .mw-history,.mw-handoff { padding:16px; } .mw-events li { gap:10px; padding:14px 10px; } .mw-events time { flex-basis:65px; } .mw-demo { padding:16px; } .mw-task-grid { padding:16px; grid-template-columns:1fr; } }
 
 .mw-notification { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:17px 26px; background:#fff0e4; border-left:4px solid #bd4d13; border-bottom:1px solid #e8c6ac; }
 .mw-notification p { font-size:13px; margin-top:4px; }

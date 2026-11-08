@@ -29,7 +29,7 @@ const STORE_KEY = 'lookahead.localBridge.v1';
 /** Same key the workflow client used for the static build, so earlier demo sessions still load. */
 const WORKFLOW_KEY = 'lookahead.workflow.v1';
 function loadWorkflow(): WorkState | undefined {
-  try { const w = JSON.parse(localStorage.getItem(WORKFLOW_KEY) ?? 'null') as WorkState | null; return w?.version === 1 ? { ...w, issues: w.issues ?? [], events: w.events ?? [], analyses: w.analyses ?? [] } : undefined; } catch { return undefined; }
+  try { const w = JSON.parse(localStorage.getItem(WORKFLOW_KEY) ?? 'null') as WorkState | null; return w?.version === 1 ? { ...w, issues: w.issues ?? [], tasks: w.tasks ?? [], events: w.events ?? [], analyses: w.analyses ?? [] } : undefined; } catch { return undefined; }
 }
 const MAX_FRAMES = 900;
 

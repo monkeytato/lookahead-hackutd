@@ -12,10 +12,9 @@ const DEMO = '#/app';
 
 /* Evidence section: headline numbers and chart order. The charts themselves are generated (evidenceFigures.ts). */
 const EVIDENCE_STATS = [
-  { value: '2,048', label: 'physics trials per response option' },
+  { value: '2,048', label: 'trials per option' },
   { value: '0', label: 'numbers written by Nemotron' },
-  { value: '< 1 °C', label: 'error on an independent published restart' },
-  { value: '82 % · 52 %', label: 'p10–p90 coverage, own vs widened priors (target 80 %)' },
+  { value: '82%', label: 'range coverage (target 80 %)' },
 ];
 const EVIDENCE_ORDER: { n: number; title: string; takeaway: string }[] = [
   { n: 3, title: 'Real failure, or a bad sensor?', takeaway: 'A portable reading turns an alarm into a probability. Near the baseline points to the sensor; near the alarm confirms a real condition; the middle asks for another scan.' },
@@ -385,7 +384,6 @@ export function Landing() {
         <section className="lp-hero" aria-labelledby="lp-hero-h">
           <div className="lp-wrap lp-hero-grid">
             <div className="lp-hero-copy">
-              <p className="lp-eyebrow">Data center operations</p>
               <h1 id="lp-hero-h" className="lp-display">Know which warning to trust—and what to fix first.</h1>
               <p className="lp-lede">
                 Verify equipment conditions, compare the consequences of competing incidents, and guide the
@@ -400,76 +398,7 @@ export function Landing() {
           </div>
         </section>
 
-        {/* 2. Incident example */}
-        <section className="lp-section lp-alt" aria-labelledby="lp-incident-h">
-          <div className="lp-wrap">
-            <p className="lp-eyebrow">Incident example · 02:10, night shift</p>
-            <h2 id="lp-incident-h" className="lp-h2">Two warnings at once. One technician free.</h2>
-            <p className="lp-body lp-measure">
-              An installed sensor reports A-11 inlet at <span className="lp-mono">34.2 °C</span>. A minute later, CRAH-2
-              fan vibration reaches <span className="lp-mono">6.4 mm/s</span> against a <span className="lp-mono">2.1 mm/s</span> baseline.
-              By alarm severity alone, A-11 goes first.
-            </p>
-
-            <div className="lp-compare">
-              <div className="lp-compare-col">
-                <h3 className="lp-h3">Before verification <span className="lp-mono lp-dim">02:11</span></h3>
-                <ol className="lp-rank">
-                  <li>
-                    <span className="lp-rank-n lp-mono">1</span>
-                    <Pri p={1} />
-                    <div>
-                      <div className="lp-rank-title">A-11 inlet <span className="lp-mono">34.2 °C</span></div>
-                      <div className="lp-rank-meta">Installed sensor · above ASHRAE 32 °C allowable</div>
-                    </div>
-                  </li>
-                  <li>
-                    <span className="lp-rank-n lp-mono">2</span>
-                    <Pri p={2} />
-                    <div>
-                      <div className="lp-rank-title">CRAH-2 fan vibration <span className="lp-mono">6.4 mm/s</span></div>
-                      <div className="lp-rank-meta">Installed sensor · ISO 10816 zone C</div>
-                    </div>
-                  </li>
-                </ol>
-              </div>
-
-              <div className="lp-compare-mid">
-                <h3 className="lp-h3">Reference probe <span className="lp-mono lp-dim">PRB-01</span></h3>
-                <dl className="lp-probe">
-                  <div><dt>A-11 front inlet, 1.6 m</dt><dd className="lp-mono">24.1 °C</dd></div>
-                  <div><dt>CRAH-2 fan bearing stud</dt><dd className="lp-mono">6.6 mm/s</dd></div>
-                </dl>
-              </div>
-
-              <div className="lp-compare-col">
-                <h3 className="lp-h3">After verification <span className="lp-mono lp-dim">02:19</span></h3>
-                <ol className="lp-rank">
-                  <li className="lp-rank-moved">
-                    <span className="lp-rank-n lp-mono">1</span>
-                    <Pri p={2} />
-                    <div>
-                      <div className="lp-rank-title">CRAH-2 fan vibration</div>
-                      <div className="lp-rank-meta"><strong>Corroborated abnormal condition.</strong> Losing CRAH-2 removes cooling redundancy for 20 racks in rows C–D.</div>
-                      <div className="lp-rank-task lp-mono">Task: vibration check → Marcus Lee</div>
-                    </div>
-                  </li>
-                  <li>
-                    <span className="lp-rank-n lp-mono">2</span>
-                    <span className="lp-pri lp-pri-q" role="img" aria-label="Unverified">?</span>
-                    <div>
-                      <div className="lp-rank-title">A-11 inlet</div>
-                      <div className="lp-rank-meta"><strong>Measurement disagreement.</strong> Installed 34.2 °C vs probe 24.1 °C. The alarm stays open as a sensor-verification task, not a dismissal.</div>
-                      <div className="lp-rank-task lp-mono">Task: check sensor mounting and firmware</div>
-                    </div>
-                  </li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 3. Workflow */}
+        {/* 2. Workflow */}
         <section id="workflow" className="lp-section" aria-labelledby="lp-workflow-h" tabIndex={-1}>
           <div className="lp-wrap">
             <p className="lp-eyebrow">How it works</p>
@@ -577,8 +506,8 @@ export function Landing() {
           <div className="lp-wrap">
             <h2 id="lp-evidence-h" className="lp-h2">The numbers behind every forecast.</h2>
             <p className="lp-body lp-measure">
-              Every chart below comes straight from our Prediction Science brief, built from the engine code, published
-              outage data and our validation reports. Where the model misses or rests on an assumption, the chart says so.
+              Every chart comes from our Prediction Science brief. Assumptions and misses are stated with the chart;
+              coverage is measured against simulated outcomes.
             </p>
             <dl className="lp-ev-stats">
               {EVIDENCE_STATS.map((s) => (
@@ -596,16 +525,16 @@ export function Landing() {
                     <div className="lp-ev-head">
                       <h3 className="lp-h3">{title}</h3>
                     </div>
-                    <p className="lp-body">{takeaway}</p>
                     <div className="lp-ev-chart" dangerouslySetInnerHTML={{ __html: fig.svg }} />
+                    <details className="lp-ev-more">
+                      <summary>What this shows</summary>
+                      <p>{takeaway}</p>
+                      <p className="lp-ev-caption">{fig.caption}</p>
+                    </details>
                   </figure>
                 );
               })}
             </div>
-            <p className="lp-framing">
-              Coverage is measured against simulated outcomes, because we had no real facility incident data. That is why
-              every range in the product is labeled “model range.”
-            </p>
           </div>
         </section>
 

@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { facility } from '../domain/fixture';
 import { gaugeSeries, monitorGauges, type Gauge } from '../domain/telemetry';
 import { useOps } from '../state/store';
-import { assetById, clocksForIncident, visibleClocks } from '../state/selectors';
+import { clocksForIncident, visibleClocks } from '../state/selectors';
 import { impactLine } from '../app/forecast';
 import { useControls } from '../app/controls';
 import { GaugeDial } from '../components/GaugeDial';
@@ -40,17 +40,16 @@ export function Monitor() {
       <div className="gm-grid">
         {gauges.map((g) => <GaugeCard key={g.id} g={g} series={gaugeSeries(input, g.id, { lookback: LOOKBACK, lookahead })} t={t} lookahead={lookahead} />)}
       </div>
-      <p className="gm-foot">Readings are simulated for this demo. Dotted lines are the engine's prediction, not measurements. Normal bands and alarm lines follow the standard named on each card.</p>
+      <p className="gm-foot">Simulated demo readings. Dotted lines are predictions, not measurements.</p>
     </div>
   );
 }
 
 function GaugeCard({ g, series, t, lookahead }: { g: Gauge; series: ReturnType<typeof gaugeSeries>; t: number; lookahead: number }) {
   const abnormal = g.severity !== 'normal';
-  const src = g.sourceAssetId ? assetById.get(g.sourceAssetId)?.name ?? g.sourceAssetId : null;
   const delta = g.predicted != null && g.value != null ? g.predicted - g.value : null;
   return (
-    <article className={`gm-card ${abnormal ? `is-${g.severity}` : ''}`}>
+    <article className={`gm-card ${abnormal ? `is-${g.severity}` : ''}`} aria-description={g.basis} title={g.basis}>
       <header className="gm-card-head">
         <h3>{g.label}</h3>
         <span className={`gm-state ${abnormal ? `is-${g.severity}` : ''}`}>{statusWord(g)}</span>
@@ -60,15 +59,14 @@ function GaugeCard({ g, series, t, lookahead }: { g: Gauge; series: ReturnType<t
         <dl className="gm-facts">
           <div><dt>Normal</dt><dd className="mono">{g.normal.lo}–{g.normal.hi} {g.unit}</dd></div>
           <div><dt>Alarm</dt><dd className="mono">{g.dir === 'above' ? '>' : '<'} {g.alarm} {g.unit}</dd></div>
-          <div>
+          {g.predicted != null && delta != null && Math.abs(delta) >= 0.05 && <div>
             <dt>In {lookahead} min</dt>
-            <dd className="mono">{g.predicted == null ? '—' : `${round(g.predicted)} ${g.unit}`}{delta != null && Math.abs(delta) >= 0.05 ? <span className="gm-delta"> {delta > 0 ? '▲' : '▼'}</span> : null}</dd>
-          </div>
-          {src && <div><dt>Source</dt><dd>{src}</dd></div>}
+            <dd className="mono">{round(g.predicted)} {g.unit}</dd>
+          </div>}
         </dl>
       </div>
       <TrendChart g={g} series={series} t={t} lookback={LOOKBACK} lookahead={lookahead} />
-      <footer className="gm-basis" title={g.basis}>{g.basis}</footer>
+      <p className="gm-basis">{g.basis}</p>
     </article>
   );
 }
