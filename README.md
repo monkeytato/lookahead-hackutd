@@ -35,6 +35,7 @@ npm run build
 
 With no Arduino plugged in, the bridge runs a **simulated rig** that emits byte-identical frames, labeled SIMULATED everywhere. Plug the rig in and the bridge switches to it within 5 s. To pin a port, set `RACKMON_PORT=COM5`.
 
+- **Static demo (claude.ai artifact):** run `npm run build:artifact` to build `dist-artifact/`, which works with no server. An in-page bridge (`src/state/localBridge.ts`) runs the same simulated rig, rig rules, hold-to-scan math and director (local planner) as the real bridge. Outside services and Nemotron are labeled unavailable, and the key is never bundled. Publish `dist-artifact/artifact.html` with the files listed in `dist-artifact/files.json`. Preview it locally with `npm run preview:artifact` (port 4174).
 - **Phone dashboard:** `#/m` gives a supervisor view on a phone: the response queue with clocks, live rig tiles, director plans with approve/reject, and the team. Open it over LAN the same way as the scanner.
 - **Phone scanner:** run `npm run dev:lan` and open `http://<laptop-ip>:5173/#/scan` on the same Wi-Fi. The bridge itself stays on 127.0.0.1. There is no auth, so keep this on a trusted network.
 - **Nemotron live:** put `NVIDIA_API_KEY=...` in `.env.local` (see `.env.example`). Without it, the deterministic local planner runs the same tool sequence and the UI says so.

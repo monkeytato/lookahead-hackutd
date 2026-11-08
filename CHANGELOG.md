@@ -3,6 +3,16 @@
 All changes to Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
+## 2026-11-07 · Static demo build, published as a claude.ai artifact
+
+- **`npm run build:artifact`** builds `dist-artifact/`, a version of the whole site (landing, workspace, 3D twin, scanner, phone dashboard) that runs with no server.
+- **In-page bridge** (`src/state/localBridge.ts`): the same API and events as `server/index.ts`, built from the same modules. That covers the simulated rig at 1 Hz with a one-minute warm-up, rig rules, hold-to-scan statistics, scan requests, rig commands, and the agent hub with the deterministic local planner. Scans, requests, events and approvals persist in that browser's localStorage.
+- **Honest limits:** no NVIDIA key ships in the page, so the director says "local planner (no key)". Weather and GitHub tools report "not reachable from the static demo".
+- `src/state/bridge.tsx` routes the event stream and `api()` to the in-page bridge only when built with `--mode artifact`. `npm run dev` is unchanged.
+- **Small portability fixes:** `server/agentHub.ts` uses global `crypto.randomUUID`, the director reads `process.env` only when it exists, and `BroadcastChannel` is guarded for sandboxed frames.
+- `scripts/artifact-page.mjs` writes `artifact.html` and a `files.json` manifest for republishing to the same artifact URL. `npm run preview:artifact` serves the build on port 4174.
+- **Verified** on the static build with no server running: workspace and twin render with no console errors and no `/api` requests. The rig streams, a director plan runs, and a full 10 s scan completes (10 frames).
+
 ## 2026-11-07 18:15 · `8b29aa5` · Phone dashboard and live Nemotron director
 
 **Phone dashboard, `#/m`** (new: `src/mobile/`)

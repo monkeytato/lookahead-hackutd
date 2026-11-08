@@ -13,7 +13,9 @@
     "dev:web": "vite",
     "dev:bridge": "tsx watch server/index.ts",
     "dev:lan": "concurrently -k -n bridge,web \"npm:dev:bridge\" \"vite --host\"",
-    "bridge": "tsx server/index.ts"
+    "bridge": "tsx server/index.ts",
+    "build:artifact": "tsc -b && vite build --mode artifact && node scripts/artifact-page.mjs",
+    "preview:artifact": "vite preview --mode artifact --port 4174 --strictPort"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

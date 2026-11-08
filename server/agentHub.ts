@@ -9,7 +9,6 @@
  * Hardware commands and outward tickets are only ever PROPOSED by the agent; they execute here,
  * after a person approves them on the dashboard.
  */
-import { randomUUID } from 'node:crypto';
 import { facility, scenarios, seedReadings } from '../src/domain/fixture';
 import { simulateScenario } from '../src/domain/engine';
 import type { RigEvent, Scan, ScanRequest, StampedFrame } from '../src/domain/rig/protocol';
@@ -17,6 +16,9 @@ import { scanToEvidence } from '../src/state/scanMapping';
 import { runDirector } from './director';
 import { createGithubIssue, type ExternalServices, type HttpLike } from './director/external';
 import type { DirectorInput, DirectorResult, PendingAction } from './director/types';
+
+// Global Web Crypto (Node 19+ and browsers): the static demo build runs this hub inside the page.
+const randomUUID = () => globalThis.crypto.randomUUID();
 
 export interface DirectorRecord {
   id: string;

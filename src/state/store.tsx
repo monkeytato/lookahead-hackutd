@@ -222,7 +222,8 @@ export function OpsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
-    const ch = new BroadcastChannel(STORAGE_KEY);
+    let ch: BroadcastChannel;
+    try { ch = new BroadcastChannel(STORAGE_KEY); } catch { return; } // sandboxed frames may refuse it
     ch.onmessage = (m) => { fromRemote.current = true; dispatch({ type: 'hydrate', state: { ...(m.data as OpsState), playing: false } }); };
     channel.current = ch;
     return () => { if (channel.current === ch) channel.current = null; ch.close(); };

@@ -27,3 +27,6 @@ dist-ssr
 .env.local
 
 server/.data/
+
+# static artifact build (npm run build:artifact)
+dist-artifact

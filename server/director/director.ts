@@ -84,7 +84,7 @@ class Fallback extends Error {}
 
 export async function runDirector(input: DirectorInput, opts: DirectorOptions = {}): Promise<DirectorResult> {
   const started = Date.now();
-  const env = opts.env ?? (process.env as Env);
+  const env = opts.env ?? ((globalThis as { process?: { env: Env } }).process?.env ?? {}); // no process in the browser demo
   const cfg = nemotronConfigFromEnv(env);
   const rec = recordingServices(opts.ext);
   const tag = (r: DirectorResult): DirectorResult => ({ ...r, queuedRequests: rec.queued, proposedActions: rec.proposed, generation: opts.generation ?? 1, trigger: opts.trigger ?? 'operator' });

@@ -5,6 +5,10 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { BridgeStatus, RigEvent, Scan, ScanRequest, StampedFrame } from '../domain/rig/protocol';
 import type { DirectorRecordView, PendingActionView } from '../views/directorTypes';
+import { getLocalBridge } from './localBridge';
+
+/** Static demo build (claude.ai artifact): no server, so an in-page bridge stands in. */
+export const LOCAL_BRIDGE = import.meta.env.VITE_LOCAL_BRIDGE === '1';
 
 export interface BridgeState {
   online: boolean;
@@ -36,41 +40,27 @@ export function BridgeProvider({ children }: { children: ReactNode }) {
     let closed = false;
     let lastMsg = Date.now();
     const seen = () => { lastMsg = Date.now(); };
+    // One handler per bridge event, shared by the real SSE stream and the in-page stand-in.
+    const on: Record<string, (d: any) => void> = {
+      status: (d) => setS((p) => ({ ...p, online: true, status: d })),
+      hello: (d) => setS((p) => ({ ...p, online: true, frames: d.frames, latest: d.frames.at(-1) ?? null, scans: d.scans, requests: d.requests, events: d.events, actions: d.actions ?? [], plans: d.director && !p.plans.some((x) => x.id === d.director.id) ? [...p.plans, d.director] : p.plans })),
+      frame: (f: StampedFrame) => setS((p) => ({ ...p, latest: f, frames: [...p.frames.slice(-(KEEP - 1)), f] })),
+      scan: (sc: Scan) => setS((p) => ({ ...p, scans: [...p.scans.filter((x) => x.id !== sc.id), sc].slice(-60) })),
+      request: (r: ScanRequest) => setS((p) => ({ ...p, requests: [...p.requests.filter((x) => x.id !== r.id), r].filter((x) => x.status === 'open') })),
+      rig_event: (ev: RigEvent) => setS((p) => ({ ...p, events: p.events.some((x) => x.id === ev.id) ? p.events.map((x) => (x.id === ev.id ? ev : x)) : [...p.events, ev].slice(-50) })),
+      action: (a: PendingActionView) => setS((p) => ({ ...p, actions: [...p.actions.filter((x) => x.id !== a.id), a].slice(-30) })),
+      director: (r: DirectorRecordView) => setS((p) => ({ ...p, replanning: null, plans: [...p.plans.filter((x) => x.id !== r.id), r].slice(-12) })),
+      director_pending: (d) => setS((p) => ({ ...p, replanning: d })),
+    };
+    if (LOCAL_BRIDGE) {
+      const unsub = getLocalBridge().subscribe((event, data) => on[event]?.(data));
+      return unsub;
+    }
     const connect = () => {
       lastMsg = Date.now();
       es = new EventSource('/api/stream');
-      for (const k of ['status', 'hello', 'frame', 'scan', 'request', 'rig_event', 'action', 'director', 'director_pending']) es.addEventListener(k, seen);
       es.addEventListener('open', () => { retry.current = 0; setS((p) => ({ ...p, online: true })); });
-      es.addEventListener('status', (e) => setS((p) => ({ ...p, online: true, status: JSON.parse((e as MessageEvent).data) })));
-      es.addEventListener('hello', (e) => {
-        const d = JSON.parse((e as MessageEvent).data);
-        setS((p) => ({ ...p, online: true, frames: d.frames, latest: d.frames.at(-1) ?? null, scans: d.scans, requests: d.requests, events: d.events, actions: d.actions ?? [], plans: d.director && !p.plans.some((x) => x.id === d.director.id) ? [...p.plans, d.director] : p.plans }));
-      });
-      es.addEventListener('frame', (e) => {
-        const f = JSON.parse((e as MessageEvent).data) as StampedFrame;
-        setS((p) => ({ ...p, latest: f, frames: [...p.frames.slice(-(KEEP - 1)), f] }));
-      });
-      es.addEventListener('scan', (e) => {
-        const sc = JSON.parse((e as MessageEvent).data) as Scan;
-        setS((p) => ({ ...p, scans: [...p.scans.filter((x) => x.id !== sc.id), sc].slice(-60) }));
-      });
-      es.addEventListener('request', (e) => {
-        const r = JSON.parse((e as MessageEvent).data) as ScanRequest;
-        setS((p) => ({ ...p, requests: [...p.requests.filter((x) => x.id !== r.id), r].filter((x) => x.status === 'open') }));
-      });
-      es.addEventListener('rig_event', (e) => {
-        const ev = JSON.parse((e as MessageEvent).data) as RigEvent;
-        setS((p) => ({ ...p, events: p.events.some((x) => x.id === ev.id) ? p.events.map((x) => (x.id === ev.id ? ev : x)) : [...p.events, ev].slice(-50) }));
-      });
-      es.addEventListener('action', (e) => {
-        const a = JSON.parse((e as MessageEvent).data) as PendingActionView;
-        setS((p) => ({ ...p, actions: [...p.actions.filter((x) => x.id !== a.id), a].slice(-30) }));
-      });
-      es.addEventListener('director', (e) => {
-        const r = JSON.parse((e as MessageEvent).data) as DirectorRecordView;
-        setS((p) => ({ ...p, replanning: null, plans: [...p.plans.filter((x) => x.id !== r.id), r].slice(-12) }));
-      });
-      es.addEventListener('director_pending', (e) => setS((p) => ({ ...p, replanning: JSON.parse((e as MessageEvent).data) })));
+      for (const k of Object.keys(on)) es.addEventListener(k, (e) => { seen(); on[k](JSON.parse((e as MessageEvent).data)); });
       es.onerror = () => {
         es?.close();
         setS((p) => ({ ...p, online: false }));
@@ -101,6 +91,12 @@ export function useFrameAge(latest: StampedFrame | null): number | null {
 }
 
 export async function api<T>(path: string, body?: unknown): Promise<T> {
+  if (LOCAL_BRIDGE) {
+    const r = await getLocalBridge().request(body === undefined ? 'GET' : 'POST', path, body);
+    const d = r.body as { error?: string; reply?: string };
+    if (r.status >= 400) throw new Error(d.error ?? d.reply ?? `HTTP ${r.status}`);
+    return r.body as T;
+  }
   const r = await fetch(path, body === undefined ? undefined : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((data as { error?: string; reply?: string }).error ?? (data as { reply?: string }).reply ?? `HTTP ${r.status}`);
