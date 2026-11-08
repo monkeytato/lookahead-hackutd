@@ -14,6 +14,7 @@
     "dev:bridge": "tsx watch server/index.ts",
     "dev:lan": "concurrently -k -n bridge,web \"npm:dev:bridge\" \"vite --host\"",
     "bridge": "tsx server/index.ts",
+    "start": "tsx server/index.ts --prod",
     "build:artifact": "tsc -b && vite build --mode artifact && node scripts/artifact-page.mjs",
     "preview:artifact": "vite preview --mode artifact --port 4174 --strictPort",
     "validate": "tsx scripts/validate/run.ts"
@@ -24,7 +25,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "serialport": "^13.0.0",
-    "three": "^0.187.0"
+    "three": "^0.187.0",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
@@ -34,7 +36,6 @@
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.7",
     "oxlint": "^1.90.0",
-    "tsx": "^4.23.15",
     "typescript": "~7.0.2",
     "vite": "^8.3.6",
     "vitest": "^5.1.0"

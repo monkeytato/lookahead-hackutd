@@ -6,7 +6,6 @@ import { StageProvider } from './stage/StageProvider';
 import { AppShell } from './app/AppShell';
 
 const TwinDemo = lazy(() => import('./twin/TwinDemo').then((m) => ({ default: m.TwinDemo })));
-const ScanApp = lazy(() => import('./scan/ScanApp').then((m) => ({ default: m.ScanApp })));
 const MobileApp = lazy(() => import('./mobile/MobileApp').then((m) => ({ default: m.MobileApp })));
 const StageRemote = lazy(() => import('./stage/StageRemote').then((m) => ({ default: m.StageRemote })));
 const Present = lazy(() => import('./present/Present').then((m) => ({ default: m.Present })));
@@ -47,9 +46,6 @@ export default function App() {
   if (isRoute(hash, '#/m')) return <Live><MobileApp route={routeOf(hash, '#/m')} /></Live>;
   if (isRoute(hash, '#/stage')) return <Live role="remote"><StageRemote /></Live>;
   if (isRoute(hash, '#/present')) return <Live><Present /></Live>;
-  if (hash.startsWith('#/scan')) {
-    return <BridgeProvider><Suspense fallback={null}><ScanApp /></Suspense></BridgeProvider>;
-  }
   if (hash.startsWith('#/twin-lab')) {
     return <Suspense fallback={null}><TwinDemo /></Suspense>;
   }

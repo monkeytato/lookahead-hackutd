@@ -1,4 +1,4 @@
-import { changeWork, emptyWork, type WorkState, type WorkCommand, type WorkIssue, type Evidence } from '../src/domain/workflow';
+import { CATALOG, changeWork, emptyWork, type WorkState, type WorkCommand, type WorkIssue, type Evidence } from '../src/domain/workflow';
 import type { Scan, StampedFrame } from '../src/domain/rig/protocol';
 import type { Incident } from '../src/domain/types';
 import type { DirectorInput, DirectorResult } from './director/types';
@@ -57,6 +57,12 @@ export function createWorkflowHub(d: Deps) {
           if (!['sensor','heat','water','vibration'].includes(String(body.kind))) throw new Error('Unknown error type');
           if (state.issues.length >= 60) throw new Error('Start a new demo session before adding more warnings');
           return apply({ type: 'simulate_error', kind: body.kind as 'sensor' | 'heat' | 'water' | 'vibration' }, actor);
+        case 'create_response':
+          if (!['sensor','heat','water','vibration'].includes(String(body.kind))) throw new Error('Choose a response type');
+          if (typeof body.assetId !== 'string' || !facility.assets.some(a => a.id === body.assetId)) throw new Error('Choose equipment from the facility list');
+          if (typeof body.title !== 'string') throw new Error('Give the response a title (at least 3 characters)');
+          if (state.issues.length >= 60) throw new Error('Start a new demo session before adding more responses');
+          return apply({ type: 'create_response', kind: body.kind as 'sensor' | 'heat' | 'water' | 'vibration', assetId: body.assetId, title: body.title.slice(0, 200) }, actor);
         case 'reset': return apply({ type: 'reset' }, actor);
         case 'note': return apply({ type: 'note', issueId: issueId || undefined, text: typeof body.text === 'string' ? body.text : '' }, actor);
         case 'review': return apply({ type: 'review' }, actor);
@@ -100,6 +106,8 @@ export function createWorkflowHub(d: Deps) {
           const i = find(issueId);
           if (analyzing) throw new Error('A response evaluation is already running');
           if (i.status === 'resolved') throw new Error('Evaluate an open incident');
+          // Incident models exist for the demo warning equipment only; never evaluate another asset in their scenario.
+          if (i.assetId !== CATALOG[i.kind].assetId) throw new Error(`Response simulation covers the demo warning equipment only; ${i.assetId} has no incident model yet.`);
           const generation = state.events.find(e => e.kind === 'session')?.id;
           analyzing = true;
           try {

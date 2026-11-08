@@ -138,7 +138,6 @@ export function TopBar({ section, embedded }: { section: string; embedded?: bool
             <hr />
             <a href="#/present" target="_blank" rel="noopener">Presenter screen ↗</a>
             <a href="#/stage" target="_blank" rel="noopener">Phone remote ↗</a>
-            <a href="#/scan" target="_blank" rel="noopener">Scanner ↗</a>
           </nav>
         )}
       </div>

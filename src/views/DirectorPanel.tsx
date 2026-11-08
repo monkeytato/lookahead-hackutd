@@ -119,7 +119,6 @@ export function DirectorPanel({ incident }: { incident: Incident }) {
                   ) : (
                     <Btn kind="primary" disabled={!!manualRequested} onClick={requestManually}>{manualRequested ? 'Requested on scanner' : 'Send to scanner'}</Btn>
                   )}
-                  <a className="btn btn-ghost" href={`#/scan?asset=${res.recommendation.nextScan.assetId}`} target="_blank" rel="noopener">Open scanner</a>
                 </div>
               </>
             ) : <div className="muted small">No scan would change the order right now.</div>}

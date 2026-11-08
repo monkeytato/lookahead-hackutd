@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-artifact
+.git
+.env
+.env.*
+!.env.example
+server/.data
+reports
+research
+ios
+hardware
+docs
+.runlogs
+.claude
+*.log

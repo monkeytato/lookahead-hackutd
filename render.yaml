@@ -1,0 +1,29 @@
+# Render Blueprint: CenterGuard as one public web service (built app + /api + Nemotron on the server).
+# Deploy: https://render.com/deploy?repo=https://github.com/monkeytato/lookahead-hackutd
+# Render asks for NVIDIA_API_KEY when the Blueprint is first created; it stays a server-side secret.
+services:
+  - type: web
+    name: centerguard
+    runtime: node
+    plan: free
+    region: oregon
+    # --include=dev: the build needs vite and tsc even if NODE_ENV=production is set on the service
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/status
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # No serial device in the cloud: always run the simulated rig
+      - key: RACKMON_SIM
+        value: "1"
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NEMOTRON_MODEL
+        value: nvidia/nemotron-3.5-lightning-30b-a3b
+      - key: NEMOTRON_THINKING
+        value: "off"
+      # Incident evaluations take 16-30 s live (12 requests); the 30 s default leaves no headroom
+      - key: NEMOTRON_EVAL_BUDGET_MS
+        value: "45000"

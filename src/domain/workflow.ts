@@ -1,4 +1,6 @@
 /** Shared laptop/phone incident record. Demo alerts never command physical equipment. */
+import { facility } from './fixture';
+import { sensorBaseline, sensorsFor } from './sensors';
 export type ErrorKind = 'sensor' | 'heat' | 'water' | 'vibration';
 export interface Evidence {
   value: number; unit: string; source: 'live' | 'simulated' | 'fixture';
@@ -50,7 +52,7 @@ export const ERROR_CHOICES: { id: ErrorKind; title: string; hint: string }[] = [
   { id: 'vibration', title: 'Fan vibration', hint: 'CRAH-2 · inspect before replacing equipment' },
 ];
 export function emptyWork(): WorkState { return { version: 1, revision: 0, issues: [], events: [], analyses: [] }; }
-const CATALOG: Record<ErrorKind, { assetId: string; title: string; location: string; installed: number; unit: string }> = {
+export const CATALOG: Record<ErrorKind, { assetId: string; title: string; location: string; installed: number; unit: string }> = {
   sensor: { assetId: 'A-11', title: 'Rack inlet temperature is high', location: 'Hall A · Row A · Rack 11 · front inlet', installed: 34.2, unit: '°C' },
   heat: { assetId: 'CH-1', title: 'Chiller supply temperature is high', location: 'Mechanical yard · Chiller 1', installed: 30.8, unit: '°C' },
   water: { assetId: 'PIPE-L2', title: 'Possible chilled-water leak', location: 'East corridor · Level 2 riser · floor below pipe', installed: 1, unit: 'wet' },
@@ -58,6 +60,7 @@ const CATALOG: Record<ErrorKind, { assetId: string; title: string; location: str
 };
 export type WorkCommand =
   | { type: 'simulate_error'; kind: ErrorKind }
+  | { type: 'create_response'; kind: ErrorKind; assetId: string; title: string }
   | { type: 'acknowledge'; issueId: string }
   | { type: 'verify_fixture'; issueId: string }
   | { type: 'evidence'; issueId: string; evidence: Evidence }
@@ -69,9 +72,30 @@ export type WorkCommand =
   | { type: 'review' }
   | { type: 'reset' };
 
-/** Steps that would be left unchecked if the issue were closed now. `verify` counts only with conclusive evidence. */
+/** Independent evidence: a conclusive portable-sensor reading (live or simulated device). A scripted fixture reference is not a measurement. */
+export function hasIndependentEvidence(i: WorkIssue): boolean {
+  return !!i.evidence && i.evidence.verdict !== 'inconclusive' && i.evidence.source !== 'fixture';
+}
+/** Whether a checklist step counts as done. `verify` counts only with independent evidence attached. */
+export function stepDone(i: WorkIssue, step: WorkIssue['steps'][number]): boolean {
+  return step.done && (step.id !== 'verify' || hasIndependentEvidence(i));
+}
+/** Steps that would be left unchecked if the issue were closed now: the one rule the reducer, handoff review and every view use. */
 export function uncheckedSteps(i: WorkIssue): string[] {
-  return i.steps.filter(x => !x.done || (x.id === 'verify' && (!i.evidence || i.evidence.verdict === 'inconclusive'))).map(x => x.label);
+  return i.steps.filter(x => !stepDone(i, x)).map(x => x.label);
+}
+const defaultSteps = (): WorkIssue['steps'] => [{ id: 'locate', label: 'Confirm equipment and measurement point', done: false }, { id: 'verify', label: 'Collect independent sensor evidence', done: false }, { id: 'act', label: 'Record inspection or response performed', done: false }, { id: 'recheck', label: 'Recheck equipment and record outcome', done: false }];
+/** Location of an operator-created response: zone and equipment name from the facility fixture. */
+export function assetLocation(assetId: string): string {
+  const a = facility.assets.find(x => x.id === assetId);
+  return a ? `${facility.zones.find(z => z.id === a.zoneId)?.name ?? a.zoneId} · ${a.name}` : '';
+}
+/** Installed reading of an operator-created response: the asset's baseline fixture reading for the warning type. */
+function installedFor(assetId: string, kind: ErrorKind): { installed: number; unit: string } {
+  const a = facility.assets.find(x => x.id === assetId)!;
+  const metric = kind === 'water' ? 'leak' : kind === 'vibration' ? 'vibration_mm_s' : kind === 'heat' && sensorsFor(a).includes('supply_temp_c') ? 'supply_temp_c' : sensorsFor(a)[0];
+  const r = sensorBaseline({ ...facility, assets: [a] }).find(x => x.metric === metric);
+  return { installed: r?.value ?? 0, unit: kind === 'water' ? 'wet' : r?.unit ?? '' };
 }
 
 export function reviewWork(s: WorkState): string[] {
@@ -80,7 +104,7 @@ export function reviewWork(s: WorkState): string[] {
   return [...s.issues.filter(i => i.status !== 'resolved').flatMap(i => [
     ...(!i.evidence ? [`${i.assetId}: independent evidence is missing.`] : []),
     ...(!i.ownerId ? [`${i.assetId}: no technician owns the next step.`] : []),
-    ...(i.steps.some(x => !x.done) ? [`${i.assetId}: checklist is incomplete.`] : []),
+    ...(uncheckedSteps(i).length ? [`${i.assetId}: checklist is incomplete.`] : []),
     ...(i.evidence?.verdict === 'disagrees' ? [`${i.assetId}: readings disagree; inspect sensor placement/calibration before changing equipment.`] : []),
   ]), ...closedIncomplete];
 }
@@ -96,10 +120,19 @@ export function changeWork(state: WorkState, command: WorkCommand, actor: string
   }
   if (command.type === 'simulate_error') {
     if (!(command.kind in CATALOG)) throw new Error('Unknown demo incident');
-    if (s.issues.some(i => i.kind === command.kind && i.status !== 'resolved')) throw new Error('This warning is already active. Resolve it before triggering another.');
-    const i: WorkIssue = { ...CATALOG[command.kind], id: `INC-${uid.slice(0,8)}`, kind: command.kind, status: 'new', createdAt: at,
-      steps: [{ id: 'locate', label: 'Confirm equipment and measurement point', done: false }, { id: 'verify', label: 'Collect independent sensor evidence', done: false }, { id: 'act', label: 'Record inspection or response performed', done: false }, { id: 'recheck', label: 'Recheck equipment and record outcome', done: false }] };
+    // Same equipment and type only: an operator-created response on other equipment never blocks the demo warning.
+    if (s.issues.some(i => i.kind === command.kind && i.assetId === CATALOG[command.kind].assetId && i.status !== 'resolved')) throw new Error('This warning is already active. Resolve it before triggering another.');
+    const i: WorkIssue = { ...CATALOG[command.kind], id: `INC-${uid.slice(0,8)}`, kind: command.kind, status: 'new', createdAt: at, steps: defaultSteps() };
     s.issues.push(i); log('alert', `${i.assetId}: ${i.title}. Warning injected from demo controller.`, 'demo alert', i);
+  } else if (command.type === 'create_response') {
+    if (!(command.kind in CATALOG)) throw new Error('Choose a response type');
+    if (!facility.assets.some(a => a.id === command.assetId)) throw new Error('Choose equipment from the facility list');
+    const title = command.title.trim().slice(0, 120);
+    if (title.length < 3) throw new Error('Give the response a title (at least 3 characters)');
+    if (s.issues.some(i => i.kind === command.kind && i.assetId === command.assetId && i.status !== 'resolved')) throw new Error('A response of this type is already open for this equipment. Close it before creating another.');
+    // Created by the operator, so it starts acknowledged; independent verification is next, as for a demo warning.
+    const i: WorkIssue = { id: `INC-${uid.slice(0,8)}`, kind: command.kind, assetId: command.assetId, title, location: assetLocation(command.assetId), ...installedFor(command.assetId, command.kind), status: 'acknowledged', createdAt: at, steps: defaultSteps() };
+    s.issues.push(i); log('response', `${i.assetId}: ${i.title}. Team response created by operator (${ERROR_CHOICES.find(c => c.id === i.kind)!.title.toLowerCase()}).`, 'operator-created response', i);
   } else if (command.type === 'note') {
     if (command.text.trim().length < 8) throw new Error('Add at least 8 characters of context');
     const i = command.issueId ? s.issues.find(x => x.id === command.issueId) : undefined;
@@ -119,6 +152,8 @@ export function changeWork(state: WorkState, command: WorkCommand, actor: string
         if (i.status !== 'new') throw new Error('Warning already acknowledged');
         i.status = 'acknowledged'; log('acknowledgement', `Acknowledged ${i.assetId}; independent verification is next.`, 'operator', i); break;
       case 'verify_fixture': {
+        // The scripted values and verdicts are written for the demo warning equipment; they mean nothing elsewhere.
+        if (i.assetId !== CATALOG[i.kind].assetId) throw new Error('The scripted demo reference exists for the demo warnings only. Take a portable sensor scan.');
         const value = i.kind === 'sensor' ? 22.4 : i.kind === 'water' ? 1 : i.kind === 'heat' ? 31 : 6.5;
         i.evidence = { value, unit: i.unit, source: 'fixture', at, scanId: `FIXTURE-${uid}`, verdict: i.kind === 'sensor' ? 'disagrees' : 'confirmed', note: 'Scripted reference reading for the walkthrough; no physical measurement was taken.' };
         i.status = 'verified'; i.steps.find(x => x.id === 'verify')!.done = true;

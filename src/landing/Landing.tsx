@@ -182,7 +182,6 @@ function ClockStrip() {
 function HeroIllustration() {
   return (
     <figure className="lp-hero-fig">
-      <figcaption className="lp-illus-label">Illustration — simulated facility data</figcaption>
       <div className="lp-screen">
         <div className="lp-screen-bar">
           <span>DAL-1 / Data Hall A</span>
@@ -258,7 +257,6 @@ function TwinTile() {
           <span style={{ right: 0 }}>T+60</span>
         </div>
       </div>
-      <p className="lp-mock-caption lp-mono">T+22 · water at battery-room threshold (modeled)</p>
     </div>
   );
 }
@@ -367,7 +365,7 @@ export function Landing() {
         <section className="lp-hero" aria-labelledby="lp-hero-h">
           <div className="lp-wrap lp-hero-grid">
             <div className="lp-hero-copy">
-              <p className="lp-eyebrow">Data center operations · prototype</p>
+              <p className="lp-eyebrow">Data center operations</p>
               <h1 id="lp-hero-h" className="lp-display">Know which warning to trust—and what to fix first.</h1>
               <p className="lp-lede">
                 Verify equipment conditions, compare the consequences of competing incidents, and guide the
@@ -376,14 +374,6 @@ export function Landing() {
               <div className="lp-actions">
                 <a className="lp-btn lp-btn-primary" href={DEMO}>Open demo<span aria-hidden="true" className="lp-arrow">→</span></a>
                 <Anchor to="workflow" className="lp-btn lp-btn-tertiary">See the workflow</Anchor>
-              </div>
-              <div className="lp-present" aria-label="Presenting this demo">
-                <span className="lp-present-k">Presenting?</span>
-                <a href="#/present">Presenter screen</a>
-                <span aria-hidden="true">·</span>
-                <a href="#/stage">Phone remote</a>
-                <span aria-hidden="true">·</span>
-                <a href="#/m">Phone dashboard</a>
               </div>
             </div>
             <HeroIllustration />
@@ -430,7 +420,6 @@ export function Landing() {
                   <div><dt>A-11 front inlet, 1.6 m</dt><dd className="lp-mono">24.1 °C</dd></div>
                   <div><dt>CRAH-2 fan bearing stud</dt><dd className="lp-mono">6.6 mm/s</dd></div>
                 </dl>
-                <p className="lp-small">Neighbors A-10 and A-12 read 22–23 °C. The Row A sensor firmware was updated yesterday.</p>
               </div>
 
               <div className="lp-compare-col">
@@ -484,23 +473,23 @@ export function Landing() {
             <h2 id="lp-platform-h" className="lp-h2">The screens an operations team works in.</h2>
             <div className="lp-tiles">
               <article className="lp-tile">
-                <div className="lp-tile-fig"><span className="lp-illus-label">Illustration</span><TwinTile /></div>
+                <div className="lp-tile-fig"><TwinTile /></div>
                 <h3 className="lp-h3">3D facility twin</h3>
                 <p className="lp-body">Scrub a time slider to see where water, heat or a power loss is modeled to reach next, and which assets are on the path.</p>
                 <a className="lp-link" href={DEMO}>Open the 3D twin<span aria-hidden="true"> →</span></a>
               </article>
               <article className="lp-tile">
-                <div className="lp-tile-fig"><span className="lp-illus-label">Illustration</span><QueueTile /></div>
+                <div className="lp-tile-fig"><QueueTile /></div>
                 <h3 className="lp-h3">Priority queue</h3>
                 <p className="lp-body">Each item shows the factors behind its position, so a supervisor can see why it ranks where it does and override it.</p>
               </article>
               <article className="lp-tile">
-                <div className="lp-tile-fig"><span className="lp-illus-label">Illustration</span><PhoneTile /></div>
+                <div className="lp-tile-fig"><PhoneTile /></div>
                 <h3 className="lp-h3">Technician task screen</h3>
                 <p className="lp-body">A phone-sized view with the route, the runbook checklist and a place to attach readings and photos as evidence.</p>
               </article>
               <article className="lp-tile">
-                <div className="lp-tile-fig"><span className="lp-illus-label">Illustration</span><HandoffTile /></div>
+                <div className="lp-tile-fig"><HandoffTile /></div>
                 <h3 className="lp-h3">Shift handoff</h3>
                 <p className="lp-body">Open risks, completed work and pending decisions, drawn from the shared log, for the incoming shift lead.</p>
               </article>
@@ -538,7 +527,6 @@ export function Landing() {
                 <div><dt>No corroboration observed</dt><dd>Nothing abnormal at that point, at that time. The alarm is not proven false.</dd></div>
               </dl>
             </div>
-            <p className="lp-note lp-mono">Sensor-to-app connection not yet selected; demo uses labeled fixture readings.</p>
           </div>
         </section>
 
@@ -570,19 +558,11 @@ export function Landing() {
             <h2 id="lp-cta-h" className="lp-h2 lp-on-inverse">Run the night-shift scenario.</h2>
             <div>
               <a className="lp-btn lp-btn-primary" href={DEMO}>Open demo<span aria-hidden="true" className="lp-arrow">→</span></a>
-              <p className="lp-cta-note">All facility data in the demo is simulated.</p>
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="lp-footer">
-        <div className="lp-wrap lp-footer-in">
-          <span>CenterGuard</span>
-          <span>HackUTD 2026 · Northmark Compute &amp; Cloud track</span>
-          <span>NVIDIA Nemotron incident analysis <span className="lp-planned">planned</span></span>
-        </div>
-      </footer>
     </div>
   );
 }

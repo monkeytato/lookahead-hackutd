@@ -41,7 +41,6 @@ export function AppShell({ route }: { route: string }) {
           ))}
         </nav>
         <div className="topbar-right">
-          <a className="tb-scan" href="#/scan" target="_blank" rel="noopener">Scanner ↗</a>
           <a className="tb-present" href="#/app/inventory">Sensor inventory</a>
 
         </div>

@@ -26,6 +26,8 @@ describe('shared incident lifecycle', () => {
     d.send({ type: 'assign', issueId: id, employeeId: 'emp-marcus' });
     expect(() => d.send({ type: 'check', issueId: id, stepId: 'verify', done: true })).toThrow();
     for (const stepId of ['locate','act','recheck']) d.send({ type: 'check', issueId: id, stepId, done: true });
+    // A disagreeing portable reading is conclusive (it points at the installed sensor), so it completes verification.
+    d.send({ type: 'evidence', issueId: id, evidence: { value: 22.1, unit: '°C', source: 'simulated', scanId: 'S-1', at: new Date().toISOString(), verdict: 'disagrees', note: 'portable reads normal' } });
     d.send({ type: 'resolve', issueId: id, note: 'Inspected sensor placement. Recheck agrees with reference.' });
     expect(d.state.issues[0].status).toBe('resolved');
     expect(d.state.events.at(-1)?.source).toBe('operator-confirmed outcome');

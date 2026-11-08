@@ -9,17 +9,20 @@
  *                                               ├─ rig rules (ten situations) → rig events
  *                                               └─ /api/director → Nemotron simulation director
  *
- * Binds to 127.0.0.1 unless BRIDGE_HOST is set. No auth: a LAN demo only, never expose publicly.
+ * Dev (`npm run dev`): binds to 127.0.0.1 unless BRIDGE_HOST is set; Vite serves the app and proxies /api.
+ * Production (`npm start`, i.e. `--prod`, or NODE_ENV=production): one web service — serves the built app
+ * from dist/ and /api on the same origin, on $PORT and 0.0.0.0. No auth: anyone with the URL shares one
+ * demo session (simulated rig) and can trigger Nemotron runs on the server's key.
  */
 import http from 'node:http';
 import { createWorkflowHub } from './workflowHub';
 import type { WorkState } from '../src/domain/workflow';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync, type Stats } from 'node:fs';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SerialPort } from 'serialport';
-import { ReadlineParser } from '@serialport/parser-readline';
+import type { SerialPort } from 'serialport';
+import type { ReadlineParser } from '@serialport/parser-readline';
 import {
   BAUD, MIN_HOLD_S, TARGET_HOLD_S,
   type BridgeStatus, type RigEvent, type RigFrame, type Scan, type ScanRequest, type StampedFrame,
@@ -36,11 +39,25 @@ import { loadEnv } from './env';
 import { DEFAULT_MODEL } from './director/nemotron';
 
 loadEnv();
-const PORT = Number(process.env.BRIDGE_PORT ?? 8787);
-const HOST = process.env.BRIDGE_HOST ?? '127.0.0.1';
+const PRODUCTION = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
+const PORT = Number(process.env.BRIDGE_PORT ?? (PRODUCTION ? process.env.PORT : undefined) ?? 8787);
+const HOST = process.env.BRIDGE_HOST ?? (PRODUCTION ? '0.0.0.0' : '127.0.0.1');
 const SIM_MODE = process.env.RACKMON_SIM ?? 'auto'; // auto | 1 (force sim) | 0 (never sim)
 const here = dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = join(here, '.data', 'store.json');
+/** Built web app (`npm run build` → dist/), served only in production. */
+const STATIC_DIR = PRODUCTION ? resolve(here, '..', 'dist') : null;
+
+// serialport is a native module: load it lazily so a host without the binding (a cloud container)
+// still runs the simulated rig instead of crashing at import time.
+interface SerialModule { SerialPort: typeof SerialPort; ReadlineParser: typeof ReadlineParser }
+let serialModule: Promise<SerialModule | null> | null = null;
+function loadSerial(): Promise<SerialModule | null> {
+  serialModule ??= Promise.all([import('serialport'), import('@serialport/parser-readline')])
+    .then(([s, p]) => ({ SerialPort: s.SerialPort, ReadlineParser: p.ReadlineParser }))
+    .catch((e) => { console.error('[bridge] serial support unavailable:', (e as Error).message); return null; });
+  return serialModule;
+}
 
 // ------------------------------------------------------------------ state
 
@@ -127,7 +144,9 @@ function isFrame(x: unknown): x is RigFrame {
 
 async function findArduino(): Promise<string | null> {
   if (process.env.RACKMON_PORT) return process.env.RACKMON_PORT;
-  const ports = await SerialPort.list();
+  const mod = await loadSerial();
+  if (!mod) return null;
+  const ports = await mod.SerialPort.list();
   const hit = ports.find((p) => p.vendorId?.toLowerCase() === '2341' || /arduino/i.test(p.manufacturer ?? ''));
   return hit?.path ?? null;
 }
@@ -146,9 +165,11 @@ function stopSim() {
 }
 
 async function connectSerial(path: string) {
+  const mod = await loadSerial();
+  if (!mod) throw new Error('serial support unavailable');
   stopSim();
-  const port = new SerialPort({ path, baudRate: BAUD });
-  const parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
+  const port = new mod.SerialPort({ path, baudRate: BAUD });
+  const parser = port.pipe(new mod.ReadlineParser({ delimiter: '\n' }));
   serial = port;
   device = { ...device, mode: 'serial', port: path };
   console.log(`[bridge] Rack Monitor on ${path} @ ${BAUD}`);
@@ -289,12 +310,47 @@ async function readBody(req: http.IncomingMessage, limit = 256_000): Promise<any
 }
 const str = (v: unknown, max = 120) => (typeof v === 'string' && v.trim() && v.length <= max ? v.trim() : null);
 
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.map': 'application/json', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.webmanifest': 'application/manifest+json',
+};
+const statFile = (f: string): Stats | null => { try { return statSync(f); } catch { return null; } };
+/** Production only: serve dist/ (hash routes, so any extensionless path falls back to index.html). */
+function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): boolean {
+  if (!STATIC_DIR || (req.method !== 'GET' && req.method !== 'HEAD')) return false;
+  let rel: string;
+  try { rel = decodeURIComponent(pathname); } catch { return false; }
+  let file = resolve(STATIC_DIR, '.' + rel);
+  if (file !== STATIC_DIR && !file.startsWith(STATIC_DIR + sep)) return false; // path traversal
+  let st = statFile(file);
+  if (st?.isDirectory()) { file = join(file, 'index.html'); st = statFile(file); }
+  if (!st?.isFile()) {
+    if (extname(rel)) return false; // a missing asset is a 404, not the app shell
+    file = join(STATIC_DIR, 'index.html'); st = statFile(file);
+    if (!st?.isFile()) return false;
+  }
+  const hashed = file.startsWith(join(STATIC_DIR, 'assets') + sep); // Vite content-hashed file names
+  res.writeHead(200, {
+    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': st.size,
+    'cache-control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache',
+    'x-content-type-options': 'nosniff',
+  });
+  if (req.method === 'HEAD') { res.end(); return true; }
+  createReadStream(file).on('error', () => res.destroy()).pipe(res);
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   const p = url.pathname;
   try {
     if (req.method === 'GET' && p === '/api/stream') {
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+      // x-accel-buffering: hosting proxies must not buffer the stream
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
       res.write(`event: status\ndata: ${JSON.stringify(status())}\n\n`);
       clients.add(res);
       res.write(`event: hello\ndata: ${JSON.stringify({ frames: frames.slice(-120), scans: store.scans.slice(-30), requests: store.requests.filter((r) => r.status === 'open'), events: store.events.slice(-20), actions: store.actions.slice(-20), director: hub.latest(), stage: stage.payload() })}\n\n`);
@@ -408,6 +464,7 @@ const server = http.createServer(async (req, res) => {
       broadcast('hello', { frames: frames.slice(-120), scans: [], requests: [], events: [] });
       return json(res, 200, { ok: true });
     }
+    if (p !== '/api' && !p.startsWith('/api/') && serveStatic(req, res, p)) return;
     json(res, 404, { error: 'not found' });
   } catch (e) {
     console.error('[bridge]', p, e);
@@ -417,6 +474,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[bridge] http://${HOST}:${PORT}  (SSE /api/stream)  nemotron=${process.env.NVIDIA_API_KEY ? 'configured' : 'not configured → local planner'}`);
+  if (STATIC_DIR) console.log(existsSync(join(STATIC_DIR, 'index.html')) ? `[bridge] serving the web app from ${STATIC_DIR}` : `[bridge] ${STATIC_DIR}/index.html missing: run npm run build`);
   void watchDevice();
 });
 if (!existsSync(dirname(DATA_FILE))) mkdirSync(dirname(DATA_FILE), { recursive: true });

@@ -80,7 +80,6 @@ export function MobileApp({ route }: { route: string }) {
           <a href="#/stage">Stage remote</a>
           <a href="#/app">Open desktop workspace</a>
           <a href="#/present">Presenter screen</a>
-          <a href="#/scan">Scanner</a>
           <a href="#/app/handoff">Handoff</a>
         </footer>
       </main>
@@ -116,7 +115,6 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
   const groups = useMemo(() => groupClocks(clocks, t), [clocks, t]);
   const lostNow = useMemo(() => clocks.filter((c) => c.p50 != null && c.p50 <= t).length, [clocks, t]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const { requests } = useBridge();
 
   return (
     <>
@@ -154,8 +152,6 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
             const owner = state.employees.find((e) => e.id === inc.ownerId);
             const lead = state.employees.find((e) => e.id === inc.shiftLeadId);
             const expanded = openId === inc.id;
-            // only offer a scan the dashboard or director actually asked for (the rig can't verify everything, e.g. vibration)
-            const req = requests.find((r) => r.incidentId === inc.id || inc.alertAssetIds.includes(r.assetId) || r.assetId === inc.rootAssetId);
             const factors = [...p.factors].sort((a, b) => b.score * b.weight - a.score * a.weight);
             return (
               <li key={inc.id} className={`m-inc m-inc-${inc.severity} ${expanded ? 'is-open' : ''}`}>
@@ -190,7 +186,6 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
                     <p className="m-small">Owner {owner ? owner.name : <>unassigned — {lead?.name ?? 'shift lead'} (shift lead) holds it</>}</p>
                     <div className="m-actions">
                       {task?.ownerId && <a className="m-btn m-btn-primary" href={`#/app/field/${task.id}`}>Technician view</a>}
-                      {req && <a className="m-btn m-btn-primary" href={`#/scan?asset=${req.assetId}`}>Scan {req.assetId} · requested</a>}
                       <a className="m-btn m-btn-ghost" href="#/app">Open on desktop</a>
                     </div>
                   </div>
@@ -282,10 +277,9 @@ function RigTab() {
         <ul className="m-rows">
           {b.requests.map((r) => (
             <li key={r.id}>
-              <a className="m-row" href={`#/scan?asset=${r.assetId}`}>
+              <div className="m-row">
                 <span className="m-row-main"><strong className="mono">{r.assetId}</strong><span>{r.point}</span><span className="m-row-sub">{r.reason}</span><span className="m-row-sub mono">{r.id} · by {r.requestedBy}</span></span>
-                <span className="m-chev" aria-hidden="true">›</span>
-              </a>
+              </div>
             </li>
           ))}
         </ul>
@@ -360,7 +354,6 @@ function DirectorTab({ top }: { top: Incident | null }) {
                 <>
                   <div className="m-rec-v"><strong className="mono">{res.recommendation.nextScan.assetId}</strong> · {res.recommendation.nextScan.point} · hold {res.recommendation.nextScan.holdS} s</div>
                   <div className="m-small">{res.recommendation.nextScan.reason}</div>
-                  <a className="m-btn m-btn-primary" href={`#/scan?asset=${res.recommendation.nextScan.assetId}`}>Open scanner</a>
                 </>
               ) : <div className="m-small m-muted">No scan would change the order right now.</div>}
               <div className="m-k">Then</div>

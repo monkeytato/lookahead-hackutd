@@ -3,6 +3,24 @@
 All changes to CenterGuard, formerly Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
+## 2026-11-08 · Final cleanup, team responses, flagging fixes, online deploy
+
+- **Front pages:**
+  - Landing: the hero line is now "Data center operations" (no "· prototype"). Removed the small print: the "Presenting?" links row, the "Illustration" labels and captions, the A-10/A-12 footnote, the sensor-connection note, the "All facility data…" line under the final button, and the footer.
+  - Facility overview: removed the "Simulated prototype" status tile, the "Portable sensor" panel and the small grey helper and disclaimer lines. The checklist-flag hints are kept.
+- **Scanner removed:** the `#/scan` page (`src/scan/`) and every link to it are gone: top bar, More menu, Rack node, director panel and phone dashboard. Portable scans still run from the Facility overview's "Take portable sensor scan" button.
+- **Submission flagging:**
+  - A close verified only by the scripted demo reference now counts the "Collect independent sensor evidence" step as unchecked. Before, it was recorded as a clean close.
+  - Checklist ticks and the handoff gap list now use the same rule (`stepDone` / `uncheckedSteps`), so the flag, the checkbox and the handoff always agree.
+  - New tests cover the server hub and the in-page bridge flagging identically.
+- **Create a team response:** Team response now has a "Create a team response" card where you enter a title, choose equipment and choose a type. It adds the new `create_response` command, which uses the default 4-step checklist, so the response then runs through assign, verify, submit and flag like any other. The scripted demo reference is offered only on demo equipment.
+- **Nemotron and online hosting:**
+  - The artifact can never run Nemotron, because it has no server and the key never ships to the browser.
+  - The bridge now serves the built app in production (`npm start`, `$PORT`, `0.0.0.0`), loads `serialport` lazily and reads `.env.local` from the project root.
+  - New `render.yaml` Blueprint, with `NVIDIA_API_KEY` as a dashboard secret and the eval budget set to 45 s, plus a `Dockerfile`. Deploy steps are in the README.
+  - Verified live: the key and the model respond, and evaluations return `provider: nemotron` in 16–30 s.
+- ✓ 303 tests passing · typecheck clean · lint 0 errors · artifact rebuilt.
+
 ## 2026-11-08 · The product is named CenterGuard
 
 - Every user-facing name is now CenterGuard:

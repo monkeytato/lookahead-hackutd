@@ -27,9 +27,6 @@ export function RigView() {
             One Rack Monitor, placed at one rack at a time. Every scan is tagged with the asset and point it was taken at.
           </p>
         </div>
-        <div className="page-h-actions">
-          <a className="btn btn-primary" href="#/scan" target="_blank" rel="noopener">Open scanner</a>
-        </div>
       </header>
 
       <PhoneView />
@@ -106,7 +103,7 @@ export function RigView() {
               </tr>
             );
           })}
-          {b.scans.length === 0 && <tr><td colSpan={6} className="muted">No scans yet. Open the scanner and hold to scan.</td></tr>}
+          {b.scans.length === 0 && <tr><td colSpan={6} className="muted">No scans yet.</td></tr>}
         </tbody>
       </table>
     </div>

@@ -38,7 +38,7 @@ detect → verify → assess → prioritize → assign → navigate → complete
 
 ```bash
 npm install
-npm run dev        # bridge (:8787) + web (:5173). Landing #/, workspace #/app, scanner #/scan
+npm run dev        # bridge (:8787) + web (:5173). Landing #/, workspace #/app
 npm test           # engine, rig and director tests (vitest)
 npm run typecheck
 npm run build
@@ -51,8 +51,7 @@ npm run build
 With no Arduino plugged in, the bridge runs a **simulated rig** that emits byte-identical frames, labeled SIMULATED everywhere. Plug the rig in and the bridge switches to it within 5 s. To pin a port, set `RACKMON_PORT=COM5`.
 
 - **Static demo (claude.ai artifact):** run `npm run build:artifact` to build `dist-artifact/`, which works with no server. An in-page bridge (`src/state/localBridge.ts`) runs the same simulated rig, rig rules, hold-to-scan math and director (local planner) as the real bridge. Outside services and Nemotron are labeled unavailable, and the key is never bundled. Publish `dist-artifact/artifact.html` with the files listed in `dist-artifact/files.json`. Preview it locally with `npm run preview:artifact` (port 4174).
-- **Phone dashboard:** `#/m` gives a supervisor view on a phone: the response queue with clocks, live rig tiles, director plans with approve/reject, and the team. Open it over LAN the same way as the scanner.
-- **Phone scanner:** run `npm run dev:lan` and open `http://<laptop-ip>:5173/#/scan` on the same Wi-Fi. The bridge itself stays on 127.0.0.1. There is no auth, so keep this on a trusted network.
+- **Phone dashboard:** `#/m` gives a supervisor view on a phone: the response queue with clocks, live rig tiles, director plans with approve/reject, and the team. Open it over LAN with `npm run dev:lan` and `http://<laptop-ip>:5173/#/m` on the same Wi-Fi. The bridge itself stays on 127.0.0.1. There is no auth, so keep this on a trusted network.
 - **Nemotron live:** put `NVIDIA_API_KEY=...` in `.env.local` (see `.env.example`). Without it, the deterministic local planner runs the same tool sequence and the UI says so.
 
 Routes:
@@ -62,7 +61,6 @@ Routes:
 | `#/` | Landing |
 | `#/app` | Operations |
 | `#/app/rig` | Rack node |
-| `#/scan` | Scanner |
 | `#/m` | Phone dashboard: queue with fixes, rig, director approvals, team |
 | `#/present` | Presenter screen for the projector (follows the stage) |
 | `#/stage` | Phone remote that drives the presentation |
@@ -73,6 +71,27 @@ Routes:
 | `#/app/handoff` | Handoff |
 | `#/app/field/<taskId>` | Technician |
 | `#/twin-lab` | 3D twin alone |
+
+## Deploy online (live Nemotron)
+
+The claude.ai artifact build has no server, so it always uses the local planner. To run Nemotron online, deploy the real bridge: one Node web service serves the built app and `/api` from the same origin, keeps `NVIDIA_API_KEY` server-side, and runs the simulated rig.
+
+**Render (free, uses `render.yaml`):**
+1. Open https://render.com/deploy?repo=https://github.com/monkeytato/lookahead-hackutd and sign in, with GitHub if you like.
+2. The repo is private, so when Render asks, grant its GitHub app access to `monkeytato/lookahead-hackutd`. If the link can't see the repo, use **New → Blueprint** in the dashboard and pick the repo.
+3. Paste your NVIDIA key into `NVIDIA_API_KEY` when prompted, then click **Deploy Blueprint**.
+4. When the build finishes, open `https://<service>.onrender.com/#/app`. `/api/status` should show `"nemotron": { "configured": true, ... }`.
+
+Notes:
+- Free instances sleep after about 15 minutes idle. The first request after that takes about a minute.
+- Every visitor shares one demo session, and the state resets on each deploy or restart.
+- There is no auth: anyone with the URL can run evaluations on your key.
+- Pushes to the default branch redeploy automatically.
+- To change the key later, go to **Environment** in the service settings.
+
+**Run the production server locally:** `npm run build`, then `npm start`. It listens on `$PORT` (default 8787) on `0.0.0.0` and reads `.env.local`.
+
+**Any container host (Fly.io, Railway, Cloud Run):** use the `Dockerfile`. Run `docker build -t centerguard .`, then `docker run -p 8080:8080 -e NVIDIA_API_KEY=... centerguard`. Set the key as the host's secret, never in the image.
 
 ## Presenting: projector + phone remote
 
@@ -171,8 +190,7 @@ On the fixture at 02:35:
 1. **Landing → Open demo.** The hall is quiet, in grayscale.
 2. **Two warnings.** A-11 reports 34.2 °C, and CRAH-2 fan vibration has tripled. *What to fix first* lists both with their time to impact; the ranking reasons are under **More details**.
 3. **Verify A-11.**
-   - On the A-11 incident, click **Request scan**.
-   - The request appears on the phone (`#/scan`). Put the rig at the inlet and **hold to scan** for 10 s.
+   - On the A-11 incident, put the rig at the inlet and click **Take portable sensor scan**; hold it steady for 10 s.
    - The dashboard records *measurement disagreement*: installed 34.2 °C vs about 22.5 °C from the rig. That makes it a verification task, not a dismissal.
 4. **Play.** At 02:21 the make-up flow mismatch raises *possible leak*. Turn on the water layer and drag **Look ahead** forward. The wet front reaches UPS-B and BATT-B and the clocks start, following the Google Paris 2023 pattern compressed.
 5. **Ask the director.**
