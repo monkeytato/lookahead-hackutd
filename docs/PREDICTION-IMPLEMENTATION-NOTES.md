@@ -62,3 +62,16 @@ Design (in progress, notes kept as I go):
   "if nothing changes", the +N twin ghost, clock-based severity and fix savings (`mode: 'forecast'`).
 - Measured in Node (scn-riser-leak): world run 84 ms; forecast run 4–7 ms with nothing observed,
   43–57 ms once the leak is inferable; `forecastScenario` (the per-tick key) 0.014 ms.
+- Done and green at 01:07 (typecheck, 290 tests, lint 0 errors): `src/state/liveForecast.ts` (new),
+  store `forecast`, `selectors.honestVisual(…, forecast)`, `usePrediction`, Present, Facility, Detail,
+  Monitor strip, Inspector, FixPanel, StageRemote + remoteModel, MobileApp, `server/phoneSummary.ts`,
+  `engine/fixes.ts` run cache keyed on the observation state in forecast mode (not on t),
+  `tests/state/liveForecast.test.ts` (8 tests).
+- 01:09:51: something outside this task wrote git merge conflict markers (HEAD vs origin/main) into
+  app.css, AppShell, domain/workflow, state/workflow, FixPanel, Inspector, monitor.css,
+  MonitorWorkspace, server/index, workflowHub, tests/workflow. My edits are on the HEAD side. I did not
+  resolve them (not my merge); browser check waits on that.
+- Playback measurement (Node, 1 min/s at the 5 Hz stage tick = 301 ticks over 60 min, no fixes):
+  riser leak 3 engine runs (T+0, T+11 leak inferable, T+34 CRAH-2 observed), 141 ms in total, worst tick
+  64 ms at T+11, cached tick 0.25 ms; OVH fire 2 runs / 25 ms; Azure chillers 3 runs / 22 ms; generator
+  2 runs / 22 ms. `honestVisual` with the forecast 0.3–0.8 ms per tick (mostly the world's per-t visual).
