@@ -2,13 +2,12 @@
  * "If nothing changes": the engine's forecast for the rest of the horizon, in plain words, and —
  * once fixes are ordered — the same forecast without them, so the difference is visible.
  */
-import { wallClock } from '../state/store';
 import { type Forecast } from '../app/forecast';
 import { usePrediction } from '../app/usePrediction';
 import { assetName } from '../state/selectors';
 
 const rackLine = (f: Forecast, H: number, lower = false) => {
-  const s = f.firstRack ? `First rack lost ${f.firstRack.at <= 0 ? 'at start' : `at ${wallClock(f.firstRack.at)} (T+${Math.round(f.firstRack.at)})`}` : `No rack lost within ${H} min`;
+  const s = f.firstRack ? `First rack lost after ${Math.max(0, Math.round(f.firstRack.at))} min of incident time` : `No rack lost in this ${H}-min window`;
   return lower ? s[0].toLowerCase() + s.slice(1) : s;
 };
 
@@ -20,7 +19,7 @@ export function PredictionPanel() {
   return (
     <div className="pred" aria-live="polite">
       <div className="pred-h">
-        <span className="pred-k">{p.fixes.length ? `With your ${p.fixes.length} fix${p.fixes.length === 1 ? '' : 'es'}` : 'If nothing changes'}</span>
+        <span className="pred-k">{p.fixes.length ? 'Response applied vs. none' : 'If nothing changes'}</span>
         <span className="pred-src mono">engine forecast · p50</span>
       </div>
       <div className="pred-main">{rackLine(f, H)}</div>
@@ -34,7 +33,7 @@ export function PredictionPanel() {
       )}
       {p.without && (
         <div className={`pred-delta ${saved > 0 ? 'is-good' : ''}`}>
-          {saved > 0 ? `Your fixes save ${saved} rack${saved === 1 ? '' : 's'}` : 'Your fixes change no rack outcome yet'} · without them: {p.without.racksLost} racks, {rackLine(p.without, H, true)}
+          {saved > 0 ? `Response saves ${saved} rack${saved === 1 ? '' : 's'}` : 'Response changes no rack outcome yet'} · without it: {p.without.racksLost} racks, {rackLine(p.without, H, true)}
         </div>
       )}
     </div>

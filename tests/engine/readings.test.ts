@@ -35,7 +35,7 @@ describe('severityFor / latestReadings', () => {
   });
   it('latest per key at or before now', () => {
     const rs = seedReadings();
-    const a11 = latestReadings(rs, 0).filter((r) => r.assetId === 'A-11');
+    const a11 = latestReadings(rs, 0).filter((r) => r.assetId === 'A-11' && r.metric === 'inlet_temp_c');
     expect(a11).toHaveLength(1);
     expect(a11[0].value).toBe(34.2);
     expect(latestReadings(rs, -1).find((r) => r.assetId === 'A-11')!.value).not.toBe(34.2);

@@ -1,3 +1,18 @@
+## Monitoring workspace and native controller (current working tree)
+
+The primary `#/app` view is the monitoring and coordinated-response workspace. New warning → independent scan → contextual evaluation → assigned checklist → recorded outcome → handoff. The bridge shares the incident record with the native SwiftUI iPhone controller through `/api/workflow`.
+
+- `#/app/tasks`: shared team response/checklists.
+- `#/app/log`: timestamped history and investigation context.
+- `#/app/handoff`: missing-owner/evidence/checklist review and record export.
+- `#/app/inventory`: preserved baseline sensor inventory.
+- `#/app/lab`: preserved advanced scenario simulator, separate from primary monitoring.
+- `ios/LookaheadRemote.xcodeproj`: native SwiftUI presenter/controller; see [iPhone setup](ios/README.md).
+
+Facility-installed readings and injected alerts are demonstration data. Only compatible bridge frames labelled `live` are physical sensor readings. Optional `vibrating` firmware data is qualitative, never calibrated mm/s. No firmware is flashed and controller demo commands do not actuate equipment.
+
+See [product review and walkthrough](docs/PRODUCT-DEMO-REVIEW.md) and [Freebuff continuation prompt](docs/FREEBUFF-CONTINUE.md) for design choices, the presentation script, verification and remaining environment blockers.
+
 # Lookahead — know which warning to trust, and what to fix first
 
 HackUTD 2026 · **Northmark Compute & Cloud: Keep the World Running**

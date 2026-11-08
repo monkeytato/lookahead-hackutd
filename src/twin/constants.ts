@@ -5,8 +5,8 @@
 import type { Asset, AssetVisualState, Severity } from '../domain/types';
 
 export const COLORS = {
-  bg: '#f4f4f4',
-  interactive: '#0f62fe',
+  bg: '#f5f3ee',
+  interactive: '#007e73',
   water: '#0f62fe',
   waterShallow: '#4589ff',
   rack: '#6f6f6f',

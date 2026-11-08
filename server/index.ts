@@ -12,6 +12,8 @@
  * Binds to 127.0.0.1 unless BRIDGE_HOST is set. No auth: a LAN demo only, never expose publicly.
  */
 import http from 'node:http';
+import { createWorkflowHub } from './workflowHub';
+import type { WorkState } from '../src/domain/workflow';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -46,7 +48,7 @@ const MAX_FRAMES = 900; // 15 min at 1 Hz
 let framesReceived = 0;
 let badLines = 0;
 
-interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[]; stage?: StageState }
+interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[]; stage?: StageState; workflow?: WorkState }
 const store: Store = loadStore();
 
 let device: BridgeStatus['device'] = { mode: 'disconnected', port: null, deviceId: null, firmware: null, lastFrameAt: null, framesReceived: 0 };
@@ -256,6 +258,14 @@ const stage = createStageHub({
   screens: () => clients.size,
 });
 
+const workflow = createWorkflowHub({
+  initial: store.workflow,
+  save: (s) => { store.workflow = s; save(); broadcast('workflow', { revision: s.revision }); },
+  latest: () => frames.at(-1) ?? null,
+  scans: () => store.scans,
+  plan: async (input) => (await hub.plan(input)).result,
+});
+
 // ------------------------------------------------------------------ http
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
@@ -284,6 +294,11 @@ const server = http.createServer(async (req, res) => {
       const ka = setInterval(() => res.write(': ka\n\n'), 15000);
       req.on('close', () => { clearInterval(ka); clients.delete(res); stage.announce(); });
       return;
+    }
+    if (req.method === 'GET' && p === '/api/workflow') return json(res, 200, workflow.snapshot());
+    if (req.method === 'POST' && p === '/api/workflow') {
+      try { await workflow.command(await readBody(req, 16_000)); return json(res, 200, workflow.snapshot()); }
+      catch (e) { return json(res, 400, { error: (e as Error).message }); }
     }
     if (req.method === 'GET' && p === '/api/status') return json(res, 200, { ...status(), badLines });
     if (req.method === 'GET' && p === '/api/frames') return json(res, 200, frames.slice(-Math.min(900, Number(url.searchParams.get('n') ?? 120))));

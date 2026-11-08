@@ -1,3 +1,4 @@
+import { Brand } from '../components/Brand';
 /**
  * Lookahead landing page (working name). Everything shown is an illustration built from the
  * simulated DAL-1 / Hall A fixture — no customer, uptime, savings or accuracy claims.
@@ -221,7 +222,7 @@ const INCIDENTS = [
     title: 'Google Cloud, europe-west9 (Paris), April 2023',
     fact: '3 h 22 min',
     factLabel: 'from water leak to battery-room alert',
-    body: 'A cooling-system water leak reached a battery room and led to a fire. The interval between the leak and the battery-room alert is the gap Lookahead’s leak scenario is built around.',
+    body: 'A cooling-system water leak reached a battery room and led to a fire. The interval between the leak and the battery-room alert is the gap CenterGuard’s leak scenario is built around.',
     source: 'Google Cloud incident report',
   },
   {
@@ -351,7 +352,7 @@ export function Landing() {
 
       <header className="lp-header">
         <div className="lp-wrap lp-header-in">
-          <a className="lp-wordmark" href="#/">Lookahead</a>
+          <a className="lp-wordmark" href="#/"><Brand /></a>
           <nav className="lp-nav" aria-label="Page sections">
             <Anchor to="workflow">How it works</Anchor>
             <Anchor to="platform">Platform</Anchor>
@@ -577,7 +578,7 @@ export function Landing() {
 
       <footer className="lp-footer">
         <div className="lp-wrap lp-footer-in">
-          <span>Lookahead (working name)</span>
+          <span>CenterGuard</span>
           <span>HackUTD 2026 · Northmark Compute &amp; Cloud track</span>
           <span>NVIDIA Nemotron incident analysis <span className="lp-planned">planned</span></span>
         </div>

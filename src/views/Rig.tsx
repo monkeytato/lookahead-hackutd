@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { RigEvent, StampedFrame } from '../domain/rig/protocol';
 import { api, deviceLabel, useBridge, useFrameAge } from '../state/bridge';
 import { Btn } from '../components/primitives';
+import { PhoneView } from './Phone';
 
 /** The physical Rack Monitor: live channels, its own root-cause events, staging controls, scans. */
 export function RigView() {
@@ -23,14 +24,15 @@ export function RigView() {
         <div>
           <h1>Rack node</h1>
           <p className="muted">
-            One Rack Monitor, placed at one rack at a time. Every scan is tagged with the asset and point it was taken at.{' '}
-            {dev.kind === 'sim' && <strong>No device on USB — this is the simulated rig, emitting the same frames as the firmware.</strong>}
+            One Rack Monitor, placed at one rack at a time. Every scan is tagged with the asset and point it was taken at.
           </p>
         </div>
         <div className="page-h-actions">
           <a className="btn btn-primary" href="#/scan" target="_blank" rel="noopener">Open scanner</a>
         </div>
       </header>
+
+      <PhoneView />
 
       <section className="rig-status">
         <div><span className="meta-k">Link</span><span className={`rig-dev rig-dev-${dev.kind}`}>{dev.text}</span></div>

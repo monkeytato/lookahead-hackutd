@@ -1,3 +1,4 @@
+import { plainAsset } from '../views/plain';
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Line } from '@react-three/drei';
@@ -41,12 +42,12 @@ function MarkerChip({ asset: a, v, zones, selected, registry, onSelect }: {
         type="button"
         className={`twin-marker twin-marker--${sev}${selected ? ' is-selected' : ''}`}
         onClick={(e) => { e.stopPropagation(); onSelect(a.id); }}
-        aria-label={`${a.id} ${SEVERITY_WORD[sev]}${v?.clockMin != null ? `, ${fmtClock(v.clockMin)}` : ''}`}
+        aria-label={`${plainAsset(a.id)} ${SEVERITY_WORD[sev]}${v?.clockMin != null ? `, ${fmtClock(v.clockMin)}` : ''}`}
       >
         {sev !== 'normal' && <SeverityGlyph severity={sev} />}
-        <span className="twin-marker__id">{a.id}</span>
+        <span className="twin-marker__id">{plainAsset(a.id)}</span>
         <span className="twin-marker__word">
-          {v?.lost ? 'Offline' : sev !== 'normal' ? SEVERITY_WORD[sev] : a.name.includes(a.id) ? a.type.toUpperCase() : a.name}
+          {v?.lost ? 'Offline' : sev !== 'normal' ? SEVERITY_WORD[sev] : plainAsset(a.id)}
         </span>
         {v?.lost ? <span className="twin-marker__clock">LOST</span> : v?.clockMin != null && <span className="twin-marker__clock">{fmtClock(v.clockMin)}</span>}
         {v?.restored && !v.lost && <span className="twin-marker__fixed">fixed</span>}

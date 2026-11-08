@@ -1,196 +1,179 @@
-import { useEffect, useMemo, useState } from 'react';
+/**
+ * Operations — the facility at rest. Every asset is instrumented, every reading is normal, and the
+ * left panel is a sensor key: pick a sensor to mark every asset across the hall that reports it.
+ * Simulation lives in its own tab; nothing here moves with a what-if run.
+ */
+import { useMemo, useState } from 'react';
 import { facility } from '../domain/fixture';
-import { findRoute, rankIncidents } from '../domain/engine';
-import type { Waypoint } from '../domain/types';
+import { sensorBaseline, sensorInventory } from '../domain/sensors';
+import { severityFor } from '../domain/engine';
+import type { AssetVisualState, Metric, Reading, Severity } from '../domain/types';
 import { Twin, type TwinLayers } from '../twin/Twin';
 import { useOps, type Selection } from '../state/store';
-import { assetById, clocksForIncident, groupClocks, honestVisual, visibleClocks, waypointById } from '../state/selectors';
-import { Countdown, EvidenceTag, SevMark } from '../components/primitives';
-import { Inspector } from './Inspector';
-import { Timeline } from './Timeline';
-import { PredictionPanel } from './PredictionPanel';
-import { leakVisible } from '../app/forecast';
+import { assetById, METRIC_LABEL } from '../state/selectors';
+import { plainAsset } from './plain';
+
+type Word = 'Critical' | 'Watch' | 'Normal' | 'No reading';
+const RANK: Record<Severity, number> = { normal: 0, advisory: 0, warning: 1, critical: 2 };
+const SEV_RANK: Record<Severity, number> = { normal: 0, advisory: 1, warning: 2, critical: 3 };
+const WORD_OF: Record<Severity, Word> = { normal: 'Normal', advisory: 'Normal', warning: 'Watch', critical: 'Critical' };
+
+const BIG = [
+  { key: 'Temperature', metrics: ['inlet_temp_c', 'supply_temp_c', 'battery_temp_c'] as Metric[] },
+  { key: 'Vibration', metrics: ['vibration_mm_s'] as Metric[] },
+  { key: 'Moisture', metrics: ['humidity_rh'] as Metric[] },
+];
+
+const SYSTEMS = [
+  { id: 'cooling', name: 'Cooling', test: (id: string) => /^CRAH|^CDU|^CH-|^PUMP/.test(id) },
+  { id: 'power', name: 'Power', test: (id: string) => /^(UPS|BATT|ATS|GEN|PDU)/.test(id) },
+  { id: 'water', name: 'Water', test: (id: string) => /^(PIPE|DRAIN)/.test(id) },
+  { id: 'racks', name: 'Racks', test: (id: string) => /^(RACK|A-\d)/.test(id) },
+];
+
+function wordFor(r: Reading | undefined): Word {
+  if (!r) return 'No reading';
+  const sev = severityFor(r.metric, r.value, facility.thresholds);
+  return WORD_OF[sev];
+}
+
+/** Clean visual state from the instrument baseline: every asset fresh, nothing lost. */
+function baselineVisual(): Record<string, AssetVisualState> {
+  const out: Record<string, AssetVisualState> = {};
+  for (const asset of facility.assets) {
+    let severity: Severity = 'normal';
+    let heat = 0;
+    for (const r of sensorBaseline(facility)) {
+      if (r.assetId !== asset.id) continue;
+      const s = severityFor(r.metric, r.value, facility.thresholds);
+      if (SEV_RANK[s] > SEV_RANK[severity]) severity = s;
+      if (r.metric === 'inlet_temp_c') heat = Math.min(1, Math.max(0, (r.value - 18) / 14));
+    }
+    out[asset.id] = { severity, freshness: 'fresh', heat };
+  }
+  return out;
+}
 
 export function Operations() {
-  const { state, run, scenario, visibleIncidents } = useOps();
-  const t = state.t;
-  const [sel, setSelRaw] = useState<Selection>(null);
-  // the camera only flies when a person picks something — the default selection keeps the overview
-  const [userPicked, setUserPicked] = useState(false);
-  const setSel = (s: Selection) => { setUserPicked(true); setSelRaw(s); };
-  const [layers, setLayers] = useState<TwinLayers>({ heat: false, water: true, deps: true, people: true });
+  const { state } = useOps();
+  const [sel, setSel] = useState<Selection>(null);
+  const [markMetric, setMarkMetric] = useState<Metric | null>(null);
+  const [layers, setLayers] = useState<TwinLayers>({ heat: false, water: false, deps: true, people: false });
   const [resetKey, setResetKey] = useState(0);
-  const [mobilePane, setMobilePane] = useState<'queue' | 'twin' | 'inspect'>('twin');
 
-  const clocks = useMemo(() => visibleClocks(run.clocks, scenario, t), [run, scenario, t]);
-  const groups = useMemo(() => groupClocks(clocks, t), [clocks, t]);
-  const lostNow = useMemo(() => clocks.filter((c) => c.p50 != null && c.p50 <= t).length, [clocks, t]);
-  const ranked = useMemo(
-    () => rankIncidents(visibleIncidents.filter((i) => i.status !== 'resolved'), { facility, clocks: Object.fromEntries(clocks.map((c) => [c.assetId, c])), now: t, tasks: state.tasks, employees: state.employees }),
-    [visibleIncidents, clocks, t, state.tasks, state.employees],
-  );
+  const readings = useMemo(() => sensorBaseline(facility), []);
+  const sensors = useMemo(() => sensorInventory(facility), []);
+  const visual = useMemo(() => baselineVisual(), []);
 
-  // default selection: top-ranked incident
-  // (also when the selection points at an incident a new scenario no longer has)
-  const selGone = sel?.kind === 'incident' && !visibleIncidents.some((i) => i.id === sel.id);
-  useEffect(() => {
-    if ((!sel || selGone) && ranked[0]) setSelRaw({ kind: 'incident', id: ranked[0].incidentId });
-    else if (selGone) setSelRaw(null);
-  }, [ranked, sel, selGone]);
+  const marked = sensors.find((s) => s.metric === markMetric);
 
-  // the twin draws the prediction ghost itself (run at t + lookahead); it gets the present state
-  const visual = useMemo(() => honestVisual(run, scenario, t, t), [run, scenario, t]);
-  // the water layer appears once the leak is observable (make-up flow mismatch), not before
-  const leakKnown = leakVisible(scenario, t);
+  const metrics = BIG.map((b) => {
+    const rows = readings.filter((r) => b.metrics.includes(r.metric) && Number.isFinite(r.value));
+    const worst = rows.reduce<Reading | undefined>((acc, r) => (!acc || r.value > acc.value ? r : acc), undefined);
+    return { ...b, worst, word: wordFor(worst) };
+  });
 
-  // highlight path: selected incident's earliest clock, or selected asset's own clock
-  const highlightPath = useMemo(() => {
-    if (sel?.kind === 'incident') {
-      const inc = visibleIncidents.find((i) => i.id === sel.id);
-      if (inc) return clocksForIncident(inc, clocks).sort((a, b) => b.path.length - a.path.length)[0]?.path;
-    }
-    if (sel?.kind === 'asset') return run.clocks[sel.id]?.path;
-    return undefined;
-  }, [sel, visibleIncidents, clocks, run]);
+  const systems = useMemo(() => SYSTEMS.map((s) => {
+    const rs = readings.filter((r) => s.test(r.assetId));
+    const worst = rs.reduce<Severity>((acc, r) => {
+      const sev = severityFor(r.metric, r.value, facility.thresholds);
+      return SEV_RANK[sev] > SEV_RANK[acc] ? sev : acc;
+    }, 'normal');
+    return { ...s, worst, first: rs[0]?.assetId };
+  }), [readings]);
 
-  // route for the selected task (from owner's last valid check-in to the asset's service point)
-  const route = useMemo<Waypoint[] | undefined>(() => {
-    const task = sel?.kind === 'task' ? state.tasks.find((x) => x.id === sel.id) : undefined;
-    if (!task?.ownerId) return undefined;
-    const emp = state.employees.find((e) => e.id === task.ownerId);
-    const asset = assetById.get(task.assetId);
-    if (!emp?.location || !asset) return undefined;
-    const r = findRoute(facility, emp.location.waypointId, asset.accessWaypoint, { skills: emp.skills, closedEdgeIds: state.closedWalkEdgeIds });
-    return r.ok ? r.path.map((id) => waypointById.get(id)!).filter(Boolean) : undefined;
-  }, [sel, state.tasks, state.employees, state.closedWalkEdgeIds]);
-
-  const selectedAssetId = sel?.kind === 'asset' ? sel.id
-    : sel?.kind === 'incident' ? visibleIncidents.find((i) => i.id === sel.id)?.rootAssetId
-    : sel?.kind === 'task' ? state.tasks.find((x) => x.id === sel.id)?.assetId : null;
-
-  const staleCount = Object.values(run.visualAt(t)).filter((v) => v.freshness === 'stale').length;
+  const overall = systems.reduce<Word>((acc, s) => (RANK[s.worst] > RANK[overallToSeverity(acc)] ? WORD_OF[s.worst] : acc), 'Normal');
+  const selectedAsset = sel?.kind === 'asset' ? assetById.get(sel.id) : undefined;
+  const selectedReadings = selectedAsset ? readings.filter((r) => r.assetId === selectedAsset.id) : [];
 
   return (
-    <div className={`ops ops-show-${mobilePane}`}>
-      {/* Level 1 — what is wrong, how long do I have */}
-      <section className="strip" aria-label="Facility overview">
-        <div className="strip-clocks">
-          {groups.length === 0 && (
-            <div className="strip-quiet">
-              <span className="mono">No running clocks.</span>
-              {lostNow > 0 ? <> {lostNow} asset{lostNow === 1 ? ' is' : 's are'} already modeled as lost — see the forecast and the queue.</> : t === 0 ? <> Press <b>Play</b> or roll a <b>Random disaster</b>.</> : <> Hall is within limits on every fresh reading.</>}
-            </div>
-          )}
-          {groups.slice(0, 4).map((g) => (
-            <button key={g.key} className="clock-tile" onClick={() => setSel({ kind: 'asset', id: g.clock.assetId })} aria-label={`${g.label} clock`}>
-              <div className="clock-tile-h">
-                <SevMark sev={g.clock.p50 != null && g.clock.p50 - t <= 10 ? 'critical' : g.clock.p50 != null && g.clock.p50 - t <= 30 ? 'warning' : 'advisory'} />
-                <span className="clock-label">{g.label}</span>
-                {g.count > 1 && <span className="clock-count mono">×{g.count}</span>}
-              </div>
-              <Countdown clock={g.clock} now={t} horizon={scenario.horizonMin} />
-              <div className="clock-detail">{g.detail}</div>
-            </button>
-          ))}
+    <div className="mon">
+      <header className="mon-head">
+        <div className="mon-health">
+          <h1>Hall A <span className={`word word-${overall.toLowerCase()}`}>{overall}</span></h1>
         </div>
-        <PredictionPanel />
-      </section>
+        <span className="mon-fact">All sensors normal · simulated readings</span>
+      </header>
 
-      <div className="mobile-tabs" role="tablist">
-        {(['queue', 'twin', 'inspect'] as const).map((p) => (
-          <button key={p} role="tab" aria-selected={mobilePane === p} onClick={() => setMobilePane(p)}>{p === 'queue' ? `Queue (${ranked.length})` : p === 'twin' ? 'Facility' : 'Details'}</button>
-        ))}
-      </div>
-
-      {/* Response queue */}
-      <aside className="queue" aria-label="Ranked response queue">
-        <header className="pane-h"><h2>What to fix first</h2><span className="pane-sub">ranked by impact and time</span></header>
-        <ol className="q-list">
-          {ranked.map((p, i) => {
-            const inc = visibleIncidents.find((x) => x.id === p.incidentId)!;
-            const incClocks = clocksForIncident(inc, clocks);
-            const first = incClocks.find((c) => c.p50 == null || c.p50 > t) ?? incClocks[0];
-            const owner = state.employees.find((e) => e.id === inc.ownerId);
-            const task = state.tasks.find((x) => x.incidentId === inc.id && x.status !== 'completed' && x.status !== 'cancelled');
-            const top = [...p.factors].sort((a, b) => b.score * b.weight - a.score * a.weight)[0];
-            const active = sel?.kind === 'incident' && sel.id === inc.id;
-            return (
-              <li key={inc.id} className={`q-card ${active ? 'is-active' : ''}`}>
-                <button className={`q-item ${active ? 'is-active' : ''}`} onClick={() => { setSel({ kind: 'incident', id: inc.id }); setMobilePane('inspect'); }}>
-                  <span className="q-rank mono">{i + 1}</span>
-                  <span className="q-body">
-                    <span className="q-title"><SevMark sev={inc.severity} /> {inc.title}</span>
-                    <span className="q-meta">
-                      <EvidenceTag v={inc.evidence} />
-                      {first && <span className="mono q-clock">{first.p50 == null ? 'no loss within the hour' : first.p50 <= t ? `${first.assetId} lost` : `${first.assetId} in ${Math.round(first.p50 - t)} min`}</span>}
-                    </span>
-                    <span className="q-next">
-                      <span className="q-k">Next</span>
-                      {task ? `${task.title} — ${task.status.replace(/_/g, ' ')}${task.ownerId ? ` · ${state.employees.find((e) => e.id === task.ownerId)?.initials}` : ''}` : p.resolvingCheck ?? 'Open it to order a fix or create a task'}
-                    </span>
-                    <span className="q-owner">{owner ? `Owner: ${owner.name}` : `Unassigned · ${state.employees.find((e) => e.id === inc.shiftLeadId)?.name ?? 'the shift lead'} holds it`}</span>
-                  </span>
-                  <span className="q-score mono" title="Priority score (illustrative weights)">{Math.round(p.total * 100)}</span>
+      <div className="mon-grid">
+        <aside className="mon-list" aria-label="Sensor key">
+          <header className="mon-pane-h">
+            <h2>Sensors</h2>
+            <span className="mon-sub">{facility.assets.length} assets</span>
+          </header>
+          <ol className="mon-items">
+            {sensors.map((s) => (
+              <li key={s.metric}>
+                <button
+                  className={`sen-item ${s.metric === markMetric ? 'is-on' : ''}`}
+                  aria-pressed={s.metric === markMetric}
+                  onClick={() => setMarkMetric(s.metric === markMetric ? null : s.metric)}
+                >
+                  <i className="sen-dot" aria-hidden="true" />
+                  <span className="sen-label">{s.label}</span>
+                  <span className="sen-count mono">{s.assetIds.length}</span>
                 </button>
-                <div className="q-foot">
-                  <details className="q-why">
-                    <summary>Why this rank</summary>
-                    <ul>
-                      {[...p.factors].sort((a, b) => b.score * b.weight - a.score * a.weight).slice(0, 3).map((f) => (
-                        <li key={f.key}><span className="q-wbar"><span style={{ width: `${Math.round(f.score * 100)}%` }} /></span>{f.label}</li>
-                      ))}
-                    </ul>
-                    {top && <p className="q-note">{top.note}</p>}
-                  </details>
-                  <button className="q-fix" onClick={() => { setSel({ kind: 'incident', id: inc.id }); setMobilePane('inspect'); }} title="Open the fix options for this incident">Fix…</button>
-                </div>
               </li>
-            );
-          })}
-          {ranked.length === 0 && <li className="q-empty">Nothing needs attention yet. Press <b>Play</b> or roll a <b>Random disaster</b> in the bar above.</li>}
-        </ol>
-      </aside>
+            ))}
+          </ol>
+        </aside>
 
-      {/* Level 2 — the hall, 3D */}
-      <section className="stage" aria-label="3D facility twin">
-        <Twin
-          facility={facility}
-          visual={visual}
-          water={leakKnown ? run.water : undefined}
-          t={t}
-          now={t}
-          run={run}
-          selectedId={userPicked ? selectedAssetId : null}
-          onSelect={(id) => setSel(id ? { kind: 'asset', id } : null)}
-          employees={state.employees}
-          route={route}
-          highlightPath={highlightPath}
-          layers={layers}
-          resetViewKey={resetKey}
-        />
-        <div className="stage-tools">
-          {(Object.keys(layers) as (keyof TwinLayers)[]).map((k) => (
-            <label key={k} className={`chip ${layers[k] ? 'is-on' : ''}`}>
-              <input type="checkbox" checked={layers[k]} onChange={() => setLayers({ ...layers, [k]: !layers[k] })} />
-              {k === 'heat' ? 'Heat slice' : k === 'water' ? 'Water' : k === 'deps' ? 'Dependencies' : 'People'}
-            </label>
-          ))}
-          <button className="chip" onClick={() => { setUserPicked(false); setResetKey((k) => k + 1); }}>Reset view</button>
-        </div>
-        <div className="stage-legend">
-          <span><SevMark sev="critical" /> P1</span><span><SevMark sev="warning" /> P2</span><span><SevMark sev="advisory" /> P3</span>
-          <span className="lg-stale" title="Sensors whose last reading is older than expected">Stale{staleCount ? ` · ${staleCount}` : ''}</span>
-          {layers.water && <span className="lg-water">Water · approximation</span>}
-          {layers.heat && <span className="lg-heat">Heat · indicative, not CFD</span>}
-        </div>
-      </section>
+        <section className="mon-map" aria-label="Hall A facility map">
+          <div className="mon-canvas">
+            <Twin
+              facility={facility}
+              visual={visual}
+              t={0}
+              now={state.t}
+              selectedId={sel?.kind === 'asset' ? sel.id : null}
+              onSelect={(id) => setSel(id ? { kind: 'asset', id } : null)}
+              employees={state.employees}
+              layers={layers}
+              resetViewKey={resetKey}
+              markIds={marked?.assetIds ?? []}
+            />
+          </div>
+          <footer className="mon-legend">
+            <button className="mon-chip" onClick={() => setLayers({ ...layers, deps: !layers.deps })}>Connections</button>
+            <button className="mon-chip" onClick={() => setResetKey((n) => n + 1)}>Reset view</button>
+            <span className="mon-legend-hint">
+              {marked ? `${marked.label} · ${marked.assetIds.length} marked` : selectedAsset ? plainAsset(selectedAsset.id) : 'Select a sensor or equipment'}
+            </span>
+          </footer>
+        </section>
 
-      {/* Level 3/4 — inspector */}
-      <aside className="inspector" aria-label="Inspector" key={sel ? `${sel.kind}:${sel.id}` : 'none'}>
-        <Inspector sel={sel} setSel={setSel} clocks={clocks} ranked={ranked} />
-      </aside>
-
-      <Timeline />
+        <aside className="mon-side" aria-label="Vitals">
+          <div className="big-metrics">
+            {metrics.map((m) => (
+              <div key={m.key} className="big-metric">
+                <span className="big-metric-k">{m.key}</span>
+                <span className="big-metric-v mono">
+                  {m.worst ? m.worst.value : '—'}<small>{m.worst?.unit ?? ''}</small>
+                </span>
+                <span className={`word word-${m.word.toLowerCase()}`}>{m.word}</span>
+                {m.worst && <span className="big-metric-who">{plainAsset(m.worst.assetId)}</span>}
+              </div>
+            ))}
+          </div>
+          {selectedAsset && (
+            <section className="resp-sec">
+              <div className="resp-sec-h"><h3>{plainAsset(selectedAsset.id)}</h3></div>
+              <ul className="mini-reads">
+                {selectedReadings.map((r) => (
+                  <li key={r.id}>
+                    <span>{METRIC_LABEL[r.metric] ?? r.metric}</span>
+                    <b className="mono">{Number.isFinite(r.value) ? r.value : '—'} <small>{r.unit}</small></b>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </aside>
+      </div>
     </div>
   );
+}
+
+function overallToSeverity(w: Word): Severity {
+  return w === 'Critical' ? 'critical' : w === 'Watch' ? 'warning' : 'normal';
 }

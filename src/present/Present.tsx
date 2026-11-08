@@ -70,6 +70,7 @@ export function Present() {
       </div>
 
       <header className="pz-top">
+        <a className="pz-back" href="#/app">← Dashboard</a>
         <div className="pz-title">
           <div className="pz-kind">{kind}</div>
           <h1>{scenario.headline ?? scenario.name}</h1>

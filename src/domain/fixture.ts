@@ -348,6 +348,10 @@ export function seedReadings(): Reading[] {
     out.push({ id: `R-${++n}`, assetId: r.id, metric: 'inlet_temp_c', value: +base.toFixed(1), unit: '°C', t: staleRowC ? -19 : -1, source: 'installed', expectedIntervalMin: 5 });
   }
   out.push({ id: `R-${++n}`, assetId: 'A-11', metric: 'inlet_temp_c', value: 34.2, unit: '°C', t: 0, source: 'installed', expectedIntervalMin: 5 });
+  // humidity is a modelled demo value, not a fitted probe: labelled simulated like every other generated reading
+  out.push({ id: `R-${++n}`, assetId: 'A-11', metric: 'humidity_rh', value: 47, unit: '%', t: 0, source: 'simulated', expectedIntervalMin: 10 });
+  out.push({ id: `R-${++n}`, assetId: 'CRAH-2', metric: 'humidity_rh', value: 45, unit: '%', t: 0, source: 'simulated', expectedIntervalMin: 10 });
+  out.push({ id: `R-${++n}`, assetId: 'UPS-A', metric: 'humidity_rh', value: 44, unit: '%', t: 0, source: 'simulated', expectedIntervalMin: 10 });
   for (const c of ['CRAH-1', 'CRAH-3', 'CRAH-4']) out.push({ id: `R-${++n}`, assetId: c, metric: 'vibration_mm_s', value: 1.9 + (c.charCodeAt(5) % 3) / 10, unit: 'mm/s', t: -3, source: 'installed', expectedIntervalMin: 15 });
   out.push({ id: `R-${++n}`, assetId: 'CRAH-2', metric: 'vibration_mm_s', value: 6.4, unit: 'mm/s', t: 1, source: 'installed', expectedIntervalMin: 15 });
   out.push({ id: `R-${++n}`, assetId: 'UPS-A', metric: 'ups_autonomy_min', value: 13, unit: 'min', t: -1, source: 'installed', expectedIntervalMin: 5 });

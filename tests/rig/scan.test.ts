@@ -178,3 +178,15 @@ describe('summarizeScan — quality flags', () => {
     expect(s.channels.ref_c!.n).toBe(10);
   });
 });
+
+describe('optional qualitative vibration detector', () => {
+  it('reports detection fraction only when firmware actually supplies the channel', () => {
+    const frames = cycled(10, () => 22.5);
+    const absent = summarizeScan(frames, meta(10));
+    expect(absent.channels.vibration_detected).toBeUndefined();
+    const present = summarizeScan(frames.map((f, i) => ({ ...f, vibrating: i % 2 === 0 })), meta(10));
+    expect(present.channels.vibration_detected?.n).toBe(frames.length);
+    expect(present.channels.vibration_detected?.mean).toBeCloseTo(Math.ceil(frames.length / 2) / frames.length, 2);
+    expect(present.channels.vibration_detected?.unit).toBe('fraction');
+  });
+});

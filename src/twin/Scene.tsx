@@ -23,7 +23,7 @@ import { BuildFade, EventEffects, GhostAssets, HeatBloom } from './Effects';
 export const CLICK_SLOP_PX = 5;
 
 export function Scene(props: TwinProps & { derived: TwinDerived; anim: TwinAnim; registry: AnchorRegistry; placed: PlacedPerson[] }) {
-  const { facility, water, t, selectedId, onSelect, route, highlightPath, layers, resetViewKey, registry, placed, run, derived, anim } = props;
+  const { facility, water, t, selectedId, onSelect, route, highlightPath, markIds, layers, resetViewKey, registry, placed, run, derived, anim } = props;
   const { visual, presenter } = derived;
   const { zones, assets } = facility;
   const gl = useThree((s) => s.gl);
@@ -110,6 +110,10 @@ export function Scene(props: TwinProps & { derived: TwinDerived; anim: TwinAnim;
       <EventEffects assets={assets} zones={zones} visual={visual} onCritical={presenter ? onCritical : undefined} />
 
       {selected && <SelectionOutline asset={selected} zones={zones} />}
+      {markIds?.map((id) => {
+        const a = assets.find((x) => x.id === id);
+        return a ? <SelectionOutline key={`mark-${id}`} asset={a} zones={zones} /> : null;
+      })}
 
       {layers.water && water && water.frames.length > 0 && <WaterLayer grid={water} zones={zones} t={t} />}
       {run && <HazardLayer hazardAt={run.hazardAt} t={t} zones={zones} />}

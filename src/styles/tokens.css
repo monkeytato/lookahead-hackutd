@@ -1,36 +1,39 @@
 /*
- * Design tokens — IBM Carbon White/Gray 10 shell + ISA-101 high-performance HMI rules.
+ * Design tokens — CenterGuard navy/teal/ivory identity with ISA-101 alarm semantics.
  * ~90% of pixels stay neutral. Color is reserved for ABNORMAL state and interaction.
  * Every severity color is paired with a shape + number + word (redundant coding).
  */
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
 :root {
+  --brand-navy: #061a45;
+  --brand-teal: #009e90;
+  --brand-ivory: #faf7f2;
   /* surfaces */
-  --bg: #f4f4f4;            /* Gray 10 — page */
-  --layer: #ffffff;         /* White — panels */
-  --layer-2: #f4f4f4;
-  --layer-hover: #e8e8e8;
-  --inverse: #161616;       /* Gray 100 — nav, active incident, 3D stage chrome */
-  --inverse-2: #262626;
-  --inverse-3: #393939;
-  --border: #e0e0e0;        /* Gray 20 */
-  --border-strong: #8d8d8d; /* Gray 50 */
-  --border-inverse: #393939;
+  --bg: #f5f3ee;            /* Gray 10 — page */
+  --layer: #fffefb;         /* White — panels */
+  --layer-2: #f5f3ee;
+  --layer-hover: #eeefe8;
+  --inverse: #061a45;       /* Gray 100 — nav, active incident, 3D stage chrome */
+  --inverse-2: #122b50;
+  --inverse-3: #294261;
+  --border: #dce1da;        /* Gray 20 */
+  --border-strong: #87948f; /* Gray 50 */
+  --border-inverse: #294261;
 
   /* text */
-  --text: #161616;
-  --text-2: #525252;
-  --text-3: #6f6f6f;
+  --text: #061a45;
+  --text-2: #50615d;
+  --text-3: #677771;
   --text-disabled: #a8a8a8;
-  --text-inverse: #f4f4f4;
-  --text-inverse-2: #c6c6c6;
+  --text-inverse: #f5f3ee;
+  --text-inverse-2: #c4d4cc;
 
   /* interaction */
-  --interactive: #0f62fe;   /* Blue 60 */
-  --interactive-hover: #0043ce;
-  --focus: #0f62fe;
-  --selected: #e0e0e0;
+  --interactive: #007e73;   /* Deep teal: white-label contrast */
+  --interactive-hover: #00655e;
+  --focus: #007e73;
+  --selected: #e6f2ed;
 
   /* ISA-101 alarm priorities (Carbon status palette) */
   --p1: #da1e28;  /* critical — red square "1" */
@@ -42,10 +45,10 @@
   --ok-text: #198038; /* used ONLY for a "verified/completed" word, never as a fill for normal */
 
   /* data */
-  --water: #0f62fe;
-  --water-soft: rgba(15, 98, 254, 0.35);
-  --band: #e0e0e0;     /* normal band in analog indicators */
-  --band-likely: #8d8d8d;
+  --water: #367b92;
+  --water-soft: rgba(54, 123, 146, 0.35);
+  --band: #dce1da;     /* normal band in analog indicators */
+  --band-likely: #87948f;
   --stale-hatch: repeating-linear-gradient(135deg, transparent 0 3px, rgba(141,141,141,.28) 3px 4px);
 
   /* type */

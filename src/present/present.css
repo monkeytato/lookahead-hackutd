@@ -1,7 +1,7 @@
 /* Presenter screen (#/present): projector view. Carbon tokens; grayscale until something is abnormal. */
 .pz {
   --pz-bg: #f4f4f4; --pz-panel: rgba(255, 255, 255, .92); --pz-fg: #161616; --pz-fg2: #525252; --pz-fg3: #6f6f6f;
-  --pz-line: #e0e0e0; --pz-accent: #0f62fe; --pz-good: #198038; --pz-inv: #161616; --pz-inv-fg: #f4f4f4;
+  --pz-line: #e0e0e0; --pz-accent: #007e73; --pz-good: #198038; --pz-inv: #161616; --pz-inv-fg: #f4f4f4;
   position: fixed; inset: 0; overflow: hidden; background: var(--pz-bg); color: var(--pz-fg); font-family: var(--font);
   padding-top: env(safe-area-inset-top, 0px);
 }

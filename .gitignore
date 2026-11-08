@@ -30,3 +30,11 @@ server/.data/
 
 # static artifact build (npm run build:artifact)
 dist-artifact
+
+# Native build products and per-user Xcode state
+ios/build/
+ios/**/xcuserdata/
+ios/build-signed/
+
+# Local run logs and screenshots
+.runlogs/

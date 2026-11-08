@@ -10,11 +10,11 @@ import { DirectorPanel } from './DirectorPanel';
 import { FixPanel } from './FixPanel';
 import { api, useBridge } from '../state/bridge';
 
-interface Props { sel: Selection; setSel: (s: Selection) => void; clocks: ImpactClock[]; ranked: PriorityResult[] }
+interface Props { sel: Selection; setSel: (s: Selection) => void; clocks: ImpactClock[]; ranked: PriorityResult[]; hideFix?: boolean }
 
-export function Inspector({ sel, setSel, clocks, ranked }: Props) {
+export function Inspector({ sel, setSel, clocks, ranked, hideFix }: Props) {
   if (!sel) return <div className="insp-empty">Select an incident, asset, person or task.</div>;
-  if (sel.kind === 'incident') return <IncidentPanel id={sel.id} setSel={setSel} clocks={clocks} ranked={ranked} />;
+  if (sel.kind === 'incident') return <IncidentPanel id={sel.id} setSel={setSel} clocks={clocks} ranked={ranked} hideFix={hideFix} />;
   if (sel.kind === 'asset') return <AssetPanel id={sel.id} setSel={setSel} />;
   if (sel.kind === 'task') return <TaskPanel id={sel.id} setSel={setSel} />;
   return <EmployeePanel id={sel.id} setSel={setSel} />;
@@ -22,7 +22,7 @@ export function Inspector({ sel, setSel, clocks, ranked }: Props) {
 
 // ------------------------------------------------------------------ incident
 
-function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Props['setSel']; clocks: ImpactClock[]; ranked: PriorityResult[] }) {
+function IncidentPanel({ id, setSel, clocks, ranked, hideFix }: { id: string; setSel: Props['setSel']; clocks: ImpactClock[]; ranked: PriorityResult[]; hideFix?: boolean }) {
   const { state, dispatch, run } = useOps();
   const t = state.t;
   const inc = state.incidents.find((i) => i.id === id);
@@ -61,7 +61,7 @@ function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Pro
   return (
     <div className="insp">
       <header className="insp-h insp-h-inverse">
-        <div className="insp-kicker mono">{inc.id} · opened {wallClock(inc.openedAt)} · {Math.max(0, Math.round(t - inc.openedAt))} min</div>
+        <div className="insp-kicker mono">{inc.id} · {inc.status.replace(/_/g, ' ')}</div>
         <h2><SevMark sev={inc.severity} label /> {inc.title}</h2>
         <div className="insp-tags">
           <EvidenceTag v={inc.evidence} />
@@ -72,7 +72,7 @@ function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Pro
 
       <p className="insp-summary">{inc.summary}</p>
 
-      {inc.status !== 'resolved' && (
+      {inc.status !== 'resolved' && !hideFix && (
         <Section title="Fix this" className="sec-fix" aside={<span className="pane-sub">what each action saves</span>}>
           <FixPanel assetIds={[inc.rootAssetId, ...inc.alertAssetIds]} />
         </Section>

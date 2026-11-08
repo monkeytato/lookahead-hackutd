@@ -27,13 +27,15 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
     const seen = new Set<string>();
     const out: FixOption[] = [];
     for (const id of ids) for (const o of fixOptionsFor(ctx, id)) if (!seen.has(key(o))) { seen.add(key(o)); out.push(o); }
-    return out.filter((o) => !c.fixes.some((f) => f.assetId === o.assetId && f.action === o.action)).slice(0, compact ? 3 : 5);
+    return out.filter((o) => !c.fixes.some((f) => f.assetId === o.assetId && f.action === o.action)).slice(0, compact ? 1 : 5);
     // fixesKey stands in for c.fixes (new array identity on every stage message)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids, scenario, minute, fixesKey, compact, run]);
 
   // counterfactuals are a few engine runs each: compute after paint, one per frame
   const [preds, setPreds] = useState<Record<string, FixPrediction>>({});
+  // engine-predicted impact captured when the fix was ordered, kept for the applied row
+  const [outcomes, setOutcomes] = useState<Record<string, string>>({});
   useEffect(() => {
     let cancelled = false;
     const ctx = { facility, scenario, seedReadings: SEED, fixes: c.fixes, t: minute };
@@ -56,6 +58,8 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
   const ordered = c.fixes.filter((f) => ids.includes(f.assetId));
   const order = (o: FixOption) => {
     const fix = makeFix(o, t);
+    const d = preds[`${key(o)}@${minute}`];
+    if (d) setOutcomes((prev) => ({ ...prev, [fix.id]: describeFix(d).headline + ' · ' + describeFix(d).detail }));
     c.send({ type: 'fix', fix }); // the store writes "Fix ordered" / "Fix in effect" to the log
   };
   const cancel = (f: Fix) => {
@@ -71,9 +75,10 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
             const live = t >= f.effectiveAt;
             return (
               <li key={f.id} className={live ? 'is-live' : ''}>
-                <span className={`fix-state mono ${live ? 'is-live' : ''}`}>{live ? 'IN EFFECT' : 'ORDERED'}</span>
+                <span className={`fix-state ${live ? 'is-live' : ''}`}>{live ? 'Applied' : 'Pending'}</span>
                 <span className="fix-label">{f.label}</span>
-                <span className="fix-when mono">{live ? `since T+${Math.round(f.effectiveAt)}` : f.effectiveAt > scenario.horizonMin ? `takes effect T+${Math.round(f.effectiveAt)} · after this ${scenario.horizonMin}-min window` : `takes effect T+${Math.round(f.effectiveAt)} · in ${Math.max(1, Math.ceil(f.effectiveAt - t))} min`}</span>
+                <span className="fix-when">{live ? 'live in the model' : f.effectiveAt > scenario.horizonMin ? `needs ~${Math.round(f.effectiveAt - t)} min — beyond this window` : `ready in ~${Math.max(1, Math.ceil(f.effectiveAt - t))} min`}</span>
+                {outcomes[f.id] && <span className="fix-outcome">{outcomes[f.id]}</span>}
                 {!live && <button className="fix-cancel" onClick={() => cancel(f)}>Cancel</button>}
               </li>
             );
@@ -81,7 +86,7 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
         </ul>
       )}
       {options.length === 0 && ordered.length === 0 && (
-        <p className="muted small">No fix is available here yet. Verify the problem first, or select the equipment causing it.</p>
+        <p className="mon-empty">No response available here yet. Verify the problem first, or select the equipment causing it.</p>
       )}
       {options.length > 0 && (
         <ul className="fix-options">
@@ -92,7 +97,7 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
               <li key={key(o)} className="fix-opt">
                 <div className="fix-opt-h">
                   <span className="fix-label">{o.label}</span>
-                  <span className="fix-delay mono">takes ~{o.delayMin} min</span>
+                  <span className="fix-delay">needs ~{o.delayMin} min</span>
                 </div>
                 {!compact && <p className="fix-desc">{o.description}</p>}
                 <div className="fix-pred">
@@ -101,10 +106,10 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
                       <span className={`fix-head ${d.helps ? 'is-good' : ''}`}>{d.headline}</span>
                       <span className="fix-detail">{d.detail}</span>
                     </>
-                  ) : <span className="fix-detail">Predicting what this saves…</span>}
+                  ) : <span className="fix-detail">Estimating impact…</span>}
                 </div>
-                <button className="btn btn-primary fix-go" disabled={!c.shared} title={c.shared ? 'Order this fix for every screen' : 'Fixes need the stage (open the workspace from #/app)'} onClick={() => order(o)}>
-                  Order fix
+                <button className="btn btn-primary fix-go" disabled={!c.shared} title={c.shared ? 'Dispatch this response through the simulation stage' : 'Responses need the stage (open the workspace from #/app)'} onClick={() => order(o)}>
+                  Apply fix
                 </button>
               </li>
             );
