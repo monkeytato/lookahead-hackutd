@@ -15,6 +15,9 @@ import { EvidenceTag, SevMark, Src } from '../components/primitives';
 import { ScanIngest } from '../views/ScanIngest';
 import { SERVICE_LABEL, type DirectorResultView, type PendingActionView } from '../views/directorTypes';
 import { ageText, clockSeverity, clockText, deltaT, nextClock, openIncidents, rigTiles, sortTasks, sparkRange, sparkSegments, statusText, taskBucket, taskCounts } from './derive';
+import { FixPanel } from '../views/FixPanel';
+import { useControls } from '../app/controls';
+import { likelihood } from '../app/forecast';
 import './mobile.css';
 
 type Tab = 'now' | 'rig' | 'director' | 'team';
@@ -27,7 +30,8 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function MobileApp({ route }: { route: string }) {
   const tab: Tab = (TABS.find((t) => t.id === route)?.id) ?? 'now';
-  const { state, dispatch, run, scenario, visibleIncidents } = useOps();
+  const { state, run, scenario, visibleIncidents } = useOps();
+  const controls = useControls();
   const b = useBridge();
   const age = useFrameAge(b.latest);
   const dev = deviceLabel(b.status, b.online);
@@ -71,7 +75,9 @@ export function MobileApp({ route }: { route: string }) {
         {tab === 'director' && <DirectorTab top={open.find((i) => i.id === ranked[0]?.incidentId) ?? null} />}
         {tab === 'team' && <TeamTab />}
         <footer className="m-foot">
+          <a href="#/stage">Stage remote</a>
           <a href="#/app">Open desktop workspace</a>
+          <a href="#/present">Presenter screen</a>
           <a href="#/scan">Scanner</a>
           <a href="#/app/handoff">Handoff</a>
         </footer>
@@ -88,12 +94,12 @@ export function MobileApp({ route }: { route: string }) {
       </nav>
       {/* scenario playback rides above the tab bar: it is the demo's shared clock */}
       <div className="m-play">
-        <button className="m-play-btn" onClick={() => dispatch({ type: 'play', playing: !state.playing })} aria-label={state.playing ? 'Pause scenario' : 'Play scenario'}>
-          {state.playing ? <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="2" width="3.5" height="12" fill="currentColor" /><rect x="9.5" y="2" width="3.5" height="12" fill="currentColor" /></svg>
+        <button className="m-play-btn" onClick={() => controls.send({ type: controls.playing ? 'pause' : 'play' })} aria-label={controls.playing ? 'Pause scenario' : 'Play scenario'}>
+          {controls.playing ?<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="3" y="2" width="3.5" height="12" fill="currentColor" /><rect x="9.5" y="2" width="3.5" height="12" fill="currentColor" /></svg>
             : <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2 L14 8 L4 14 Z" fill="currentColor" /></svg>}
         </button>
         <div className="m-play-track" aria-hidden="true"><span style={{ width: `${(t / scenario.horizonMin) * 100}%` }} /></div>
-        <span className="mono m-play-t">{scenario.name}</span>
+        <span className="mono m-play-t">{scenario.headline ?? scenario.name}</span>
       </div>
     </div>
   );
@@ -105,15 +111,16 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
   const { state, scenario } = useOps();
   const t = state.t;
   const groups = useMemo(() => groupClocks(clocks, t), [clocks, t]);
+  const lostNow = useMemo(() => clocks.filter((c) => c.p50 != null && c.p50 <= t).length, [clocks, t]);
   const [openId, setOpenId] = useState<string | null>(null);
   const { requests } = useBridge();
 
   return (
     <>
       <section className="m-sec" aria-label="Impact clocks">
-        <h2 className="m-h">Time to impact <span className="m-h-sub">engine · p50 (p10–p90) min</span></h2>
+        <h2 className="m-h">Time to impact <span className="m-h-sub">engine forecast, minutes</span></h2>
         {groups.length === 0 ? (
-          <div className="m-quiet">No running clocks. Every fresh reading is within limits{t === 0 ? ' — press play to run the scenario.' : '.'}</div>
+          <div className="m-quiet">{lostNow > 0 ? `No running clocks. ${lostNow} asset${lostNow === 1 ? ' is' : 's are'} already modeled as lost.` : t === 0 ? 'No running clocks yet — press play below to run the scenario.' : 'No running clocks. Every fresh reading is within limits.'}</div>
         ) : (
           <div className="m-clocks">
             {groups.slice(0, 4).map((g) => {
@@ -123,6 +130,7 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
                   <div className="m-clock-h"><SevMark sev={clockSeverity(g.clock, t)} /><span>{g.label}</span>{g.count > 1 && <span className="mono m-muted">×{g.count}</span>}</div>
                   <div className="m-clock-v mono">{ct.main}{!ct.lost && <small> min</small>}</div>
                   <div className="m-clock-r mono">{ct.range ? `(${ct.range})` : ' '}</div>
+                  <div className="m-clock-d m-muted">{likelihood(g.clock.probWithinHorizon, scenario.horizonMin)}</div>
                   <div className="m-clock-d">{g.detail}</div>
                 </div>
               );
@@ -132,8 +140,8 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
       </section>
 
       <section className="m-sec" aria-label="Ranked response queue">
-        <h2 className="m-h">Response queue <span className="m-h-sub">policy P-demo · illustrative weights</span></h2>
-        {ranked.length === 0 && <div className="m-quiet">Nothing needs attention.</div>}
+        <h2 className="m-h">What to fix first <span className="m-h-sub">tap one to fix it</span></h2>
+        {ranked.length === 0 && <div className="m-quiet">Nothing needs attention yet.</div>}
         <ol className="m-list">
           {ranked.map((p, i) => {
             const inc = incidents.find((x) => x.id === p.incidentId)!;
@@ -156,21 +164,26 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
                       <EvidenceTag v={inc.evidence} />
                       {ct && first && <span className={`mono m-inc-clock ${ct.lost ? 'is-lost' : ''}`}>{ct.lost ? 'impact' : ct.main}{ct.range ? ` (${ct.range})` : ''} · {assetById.get(first.assetId)?.id}</span>}
                     </span>
-                    <span className="m-inc-next"><span className="m-k">Next</span>{task ? `${task.title} — ${statusText(task.status)}` : p.resolvingCheck ?? 'Create a task on the desktop'}</span>
+                    <span className="m-inc-next"><span className="m-k">Next</span>{task ? `${task.title} — ${statusText(task.status)}` : p.resolvingCheck ?? 'Tap to order a fix'}</span>
                   </span>
                   <span className="m-inc-score mono" title="Priority total (illustrative weights)">{Math.round(p.total * 100)}</span>
                 </button>
                 {expanded && (
                   <div className="m-inc-more">
                     <p>{inc.summary}</p>
-                    <dl className="m-factors">
-                      {factors.map((f) => (
-                        <div key={f.key}>
-                          <dt>{f.label}<span className="mono"> {Math.round(f.score * f.weight * 100)}</span></dt>
-                          <dd><span className="m-bar" aria-hidden="true"><span style={{ width: `${Math.round(f.score * 100)}%` }} /></span>{f.note}</dd>
-                        </div>
-                      ))}
-                    </dl>
+                    <h3 className="m-subh">Fix this</h3>
+                    <FixPanel assetIds={[inc.rootAssetId, ...inc.alertAssetIds]} compact />
+                    <details className="m-why">
+                      <summary>Why this rank</summary>
+                      <dl className="m-factors">
+                        {factors.slice(0, 4).map((f) => (
+                          <div key={f.key}>
+                            <dt>{f.label}</dt>
+                            <dd><span className="m-bar" aria-hidden="true"><span style={{ width: `${Math.round(f.score * 100)}%` }} /></span></dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </details>
                     <p className="m-small">Owner {owner ? owner.name : <>unassigned — {lead?.name ?? 'shift lead'} (shift lead) holds it</>}</p>
                     <div className="m-actions">
                       {task?.ownerId && <a className="m-btn m-btn-primary" href={`#/app/field/${task.id}`}>Technician view</a>}

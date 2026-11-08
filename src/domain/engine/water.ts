@@ -165,7 +165,7 @@ export function simulateWater(
   const stepsPerFrame = Math.max(1, Math.round(frameEveryMin * tp.substepsPerMin));
   for (let s = 1; s <= totalSteps; s++) {
     const t = s * dt;
-    if (src >= 0 && t > leak.startT) depth[src] += srcPerStep;
+    if (src >= 0 && t > leak.startT && (leak.stopT === undefined || t <= leak.stopT)) depth[src] += srcPerStep;
 
     // 1) compute outflows from the current state (Jacobi update)
     for (let i = 0; i < n; i++) {

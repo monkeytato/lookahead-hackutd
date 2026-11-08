@@ -149,3 +149,54 @@
 .twin-anchor { position: absolute; left: 0; top: 0; width: max-content; pointer-events: none; will-change: transform; }
 .twin-anchor > * { pointer-events: auto; }
 .twin-person { transform: translate(-50%, calc(-100% - 2px)); }
+
+/* ---- live twin additions ---------------------------------------------------------------- */
+.twin-marker__fixed {
+  color: #005d5d;
+  padding: 0 4px;
+  border: 1px solid #08bdba;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Prediction banner: blue-gray, dashed — reads as "forecast", never as live state */
+.twin__prediction {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: rgba(244, 244, 244, 0.92);
+  border: 1px dashed #7d8fa3;
+  color: #33475b;
+  font: 500 12px/16px var(--font, 'IBM Plex Sans', sans-serif);
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 2;
+}
+.twin__prediction b { font-family: var(--mono, 'IBM Plex Mono', monospace); font-weight: 600; letter-spacing: 0.04em; }
+.twin__prediction i { font-style: normal; color: #5a6b7d; }
+.twin__sw--ghost { background: repeating-linear-gradient(45deg, #7d8fa3 0 3px, transparent 3px 6px); border: 1px dashed #7d8fa3; }
+.twin__sw--fire { background: #ff6a1a; }
+.twin__sw--fixed { background: #08bdba; }
+
+/* Presenter: bigger labels and banner for a projector, fewer of them */
+.twin--presenter .twin-marker { font-size: 14px; padding: 5px 10px; }
+.twin--presenter .twin-marker__id { font-size: 13px; }
+.twin--presenter .twin__prediction { font-size: 15px; line-height: 20px; padding: 8px 16px; top: 16px; }
+.twin--presenter .twin__legend { font-size: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .twin-marker { transition: none; }
+}
+.twin__overlay { transition: opacity 0.35s ease-out; }
+.twin__overlay--building { opacity: 0; }

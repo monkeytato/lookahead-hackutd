@@ -376,6 +376,14 @@ export function Landing() {
                 <a className="lp-btn lp-btn-primary" href={DEMO}>Open demo<span aria-hidden="true" className="lp-arrow">→</span></a>
                 <Anchor to="workflow" className="lp-btn lp-btn-tertiary">See the workflow</Anchor>
               </div>
+              <div className="lp-present" aria-label="Presenting this demo">
+                <span className="lp-present-k">Presenting?</span>
+                <a href="#/present">Presenter screen</a>
+                <span aria-hidden="true">·</span>
+                <a href="#/stage">Phone remote</a>
+                <span aria-hidden="true">·</span>
+                <a href="#/m">Phone dashboard</a>
+              </div>
             </div>
             <HeroIllustration />
           </div>

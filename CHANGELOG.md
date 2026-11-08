@@ -3,7 +3,50 @@
 All changes to Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
-## 2026-11-07 · Static demo build, published as a claude.ai artifact
+## 2026-11-07 · Live presentation: phone remote, random and real disasters, fixes, a growing 3D twin
+
+**Present from two devices**
+- `#/present` is a full-screen presenter view: headline and source, a large clock, top clocks, forecast, event ticker, prediction banner and fix toasts.
+- `#/stage` is a phone remote: random disaster, real incidents, play/pause/±5/speed, prediction +10/+20/+30, fixes with predicted savings, and camera focus.
+- Every screen follows one shared **stage**: scenario, clock, speed, fixes, prediction and focus (`src/stage/`). It travels over the laptop bridge (`POST /api/stage` + SSE, `server/stageHub.ts`), the claude.ai `room` + `db` capabilities in the artifact, or same-browser tabs as a fallback.
+- **Pacing for a live demo:** 1× is now 1 scenario minute per second, so a 60-minute disaster runs about a minute. **Pause on each new incident** is on by default, so every screen stops when an alarm fires. That leaves time to explain and order a fix.
+- Plain links `#stage`, `#present`, `#phone` and `#app` work, so an artifact link can open the remote directly.
+
+**Disasters and prediction** (`src/domain/scenarios/`)
+- **Random disaster** (`rnd-<seed>`, deterministic per id). The templates are a leak, chiller trips, a CRAH failure, utility loss with generator no-start, a UPS fire, and PDU breaker trips. Half the draws add a compounding second event, and every draw yields at least one clock.
+- **Real incidents, adapted and compressed:**
+  - Google Cloud Paris 2023 water leak
+  - NaviSite generator no-start
+  - London heatwave cooling failures, July 2022
+  - OVHcloud SBG2 UPS-room fire, March 2021
+  - Azure Australia East chiller trips, August 2023
+
+  Each scenario names its public source.
+- **Fire and smoke** are a new hazard layer: footprints spread in rated zones, and assets inside them fail.
+- **Prediction:** "if nothing changes" forecasts, and a prediction ghost at +N minutes.
+
+**Fixes** (`src/domain/engine/fixes.ts`)
+- **Options per asset:** close an isolation valve, restart a chiller, reset or cover a CRAH, start the generator manually, transfer a UPS, release fire suppression, reset a breaker, shed load, or bring in portable cooling. Each has a stated delay assumption.
+- The engine repairs the asset from the time the fix takes effect. Losses that already happened stay, and downstream loss only spreads if the source is still down. Water stops at an isolated source, and suppressed fire is contained.
+- Every option shows a counterfactual, e.g. "saves 48 racks". Example: isolating the Paris riser at T+12 cuts losses from 67 assets to 7, and from 48 racks to 0.
+
+**3D twin that grows and changes** (`src/twin/`)
+- **Build-in:** the facility assembles itself on load and on every new scenario.
+- Time glides smoothly, so water, fire, smoke and heat visibly grow.
+- **State changes:** ripples mark new failures, lost equipment goes dark and sinks, and fixed equipment gets a recovery sweep. Racks pulse faster as their clock runs down.
+- The prediction ghost shows dashed future water, fire and losses.
+- Only the 5 most urgent labels are shown, and the camera follows focus. Presenter mode adds an idle orbit and swings to new critical events.
+- About 78 fps.
+
+**A clearer workspace**
+- A control bar holds the scenario picker, Random disaster, play/±5/speed, a scrubber with event and fix ticks, Prediction, the Phone remote link and a link status.
+- "Fix this" in the Inspector and on queue cards. A prediction panel with/without your fixes.
+- **Plain wording:** "T−15 min" instead of "(15–15)", and "Certain within the hour" instead of "100% of runs". Rank formulas sit behind "Why this rank".
+- Fixed a crash on random/real ids in Dependencies. `confirm()`/`alert()` are replaced with in-page confirms, since artifacts block dialogs.
+
+**Tests:** 202 passing (was 167), with new engine fix/hazard, scenario and stage protocol tests.
+
+## 2026-11-07 · `75ef142` · Static demo build, published as a claude.ai artifact
 
 - **`npm run build:artifact`** builds `dist-artifact/`, a version of the whole site (landing, workspace, 3D twin, scanner, phone dashboard) that runs with no server.
 - **In-page bridge** (`src/state/localBridge.ts`): the same API and events as `server/index.ts`, built from the same modules. That covers the simulated rig at 1 Hz with a one-minute warm-up, rig rules, hold-to-scan statistics, scan requests, rig commands, and the agent hub with the deterministic local planner. Scans, requests, events and approvals persist in that browser's localStorage.

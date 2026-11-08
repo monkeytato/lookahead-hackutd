@@ -24,9 +24,11 @@ export interface BridgeState {
   plans: DirectorRecordView[];
   /** A re-plan is running on the bridge right now */
   replanning: { chainId: string; generation: number; trigger: string } | null;
+  /** Shared presentation state from the bridge (src/stage), with the server clock it was sent at */
+  stage: { state: unknown; now: number; screens: number; receivedAt: number } | null;
 }
 
-const empty: BridgeState = { online: false, status: null, frames: [], latest: null, scans: [], requests: [], events: [], actions: [], plans: [], replanning: null };
+const empty: BridgeState = { online: false, status: null, frames: [], latest: null, scans: [], requests: [], events: [], actions: [], plans: [], replanning: null, stage: null };
 const Ctx = createContext<BridgeState>(empty);
 const KEEP = 180;
 
@@ -43,7 +45,8 @@ export function BridgeProvider({ children }: { children: ReactNode }) {
     // One handler per bridge event, shared by the real SSE stream and the in-page stand-in.
     const on: Record<string, (d: any) => void> = {
       status: (d) => setS((p) => ({ ...p, online: true, status: d })),
-      hello: (d) => setS((p) => ({ ...p, online: true, frames: d.frames, latest: d.frames.at(-1) ?? null, scans: d.scans, requests: d.requests, events: d.events, actions: d.actions ?? [], plans: d.director && !p.plans.some((x) => x.id === d.director.id) ? [...p.plans, d.director] : p.plans })),
+      stage: (d) => setS((p) => ({ ...p, stage: { ...d, receivedAt: Date.now() } })),
+      hello: (d) => setS((p) => ({ ...p, online: true, stage: d.stage ? { ...d.stage, receivedAt: Date.now() } : p.stage, frames: d.frames, latest: d.frames.at(-1) ?? null, scans: d.scans, requests: d.requests, events: d.events, actions: d.actions ?? [], plans: d.director && !p.plans.some((x) => x.id === d.director.id) ? [...p.plans, d.director] : p.plans })),
       frame: (f: StampedFrame) => setS((p) => ({ ...p, latest: f, frames: [...p.frames.slice(-(KEEP - 1)), f] })),
       scan: (sc: Scan) => setS((p) => ({ ...p, scans: [...p.scans.filter((x) => x.id !== sc.id), sc].slice(-60) })),
       request: (r: ScanRequest) => setS((p) => ({ ...p, requests: [...p.requests.filter((x) => x.id !== r.id), r].filter((x) => x.status === 'open') })),

@@ -1,14 +1,13 @@
 import { useMemo } from 'react';
-import { facility, scenarios, seedReadings } from '../domain/fixture';
+import { facility, seedReadings } from '../domain/fixture';
 import { simulateScenario } from '../domain/engine';
 import { makeEvent, useOps } from '../state/store';
 import { Btn } from '../components/primitives';
 
 /** Cited candidate dependencies → human review → graph revision → replay the same prediction. */
 export function DependenciesView() {
-  const { state, dispatch, run, activeExtraEdges } = useOps();
+  const { state, dispatch, run, activeExtraEdges, scenario } = useOps();
   const candidates = facility.edges.filter((e) => !e.confirmed);
-  const scenario = scenarios.find((s) => s.id === state.scenarioId)!;
 
   // frozen replay: same scenario, same seed, without the confirmed candidates
   const baseline = useMemo(() => simulateScenario({ facility, scenario, seedReadings: seedReadings() }), [scenario]);

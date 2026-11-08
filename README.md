@@ -48,7 +48,9 @@ Routes:
 | `#/app` | Operations |
 | `#/app/rig` | Rack node |
 | `#/scan` | Scanner |
-| `#/m` | Phone dashboard: queue, rig, director approvals, team |
+| `#/m` | Phone dashboard: queue with fixes, rig, director approvals, team |
+| `#/present` | Presenter screen for the projector (follows the stage) |
+| `#/stage` | Phone remote that drives the presentation |
 | `#/app/tasks` | Tasks |
 | `#/app/team` | Team |
 | `#/app/dependencies` | Dependencies |
@@ -56,6 +58,25 @@ Routes:
 | `#/app/handoff` | Handoff |
 | `#/app/field/<taskId>` | Technician |
 | `#/twin-lab` | 3D twin alone |
+
+## Presenting: projector + phone remote
+
+Every screen follows one shared **stage**: the scenario, the clock (play, pause, speed), ordered fixes, the prediction preview and the camera focus. Press a button on any screen and every other screen follows.
+
+1. **Laptop:** run `npm run dev:lan`. Open `#/present` on the projector. The workspace (`#/app`) can run on a second tab or monitor.
+2. **Phone:** on the same Wi-Fi, open `http://<laptop-ip>:5173/#/stage`. The bridge relays commands between devices.
+3. **Claude artifact instead:** open the published artifact on the laptop and the phone, signed in to the same account. The artifact link can't carry a route, so on the phone tap **Phone remote** on the landing page. The two copies talk through the artifact's live room; a copy that opens late catches up from its stored state.
+
+The workspace control bar (under the top bar):
+- **Scenario picker:** the real incidents (each adapted from a public post-incident report, compressed and simulated), followed by engineering what-ifs. Each entry shows its headline and source.
+- **Random disaster:** generates a new seeded disaster (leak, chiller or CRAH failure, utility loss with a generator that won't start, UPS fire, breaker trip; sometimes two at once) and starts the clock. The id (`rnd-…`) rebuilds the same disaster on every screen.
+- **Play / −5 / +5 / speed / timeline:** the shared clock. Ticks mark scenario events and fixes taking effect.
+- **Prediction +10 / +20 / +30:** previews the engine forecast that far ahead, in the 3D twin and on the presenter screen. It is labeled as a forecast, not observed.
+- **Phone remote:** how to open the remote on a phone, and which link is carrying the stage.
+
+**Fixes.** Open an incident (or the **Fix…** button on its queue card) to see what can be done about it. That might be closing a riser valve, restarting a chiller, a manual generator start, releasing fire suppression or resetting a breaker. Each option shows its assumed work time and what the engine predicts it saves: the same scenario run with and without the fix ("Saves 12 racks · first rack loss moves from T+44 to none"). **Order fix** sends it through the stage. It takes effect after the work time, the twin shows the equipment recovering, and the forecast panel compares the outcome with and without your fixes.
+
+Presenter keys: **Space** play/pause · **R** random disaster · **P** prediction · **F** full screen.
 
 ## The rig → scanner → dashboard loop
 

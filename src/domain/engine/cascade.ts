@@ -11,6 +11,15 @@
  *
  * Only `confirmed` facility edges are used, plus any `extraEdges` the caller passes in
  * (what-if / candidate edges must be opted in explicitly — acceptance A05).
+ *
+ * Fixes and recovery (operator remediation, `opts.fixes`): an asset fixed at tf is available
+ * again from tf. Per run every node has a loss time L and a recovery time R (∞ = never):
+ *  - an edge X→Y only propagates if X is still down when its delay runs out: L[X] + d < R[X]
+ *    (a generator started before the batteries drain means the batteries never drain);
+ *  - a group that is fully lost recovers when its first member recovers;
+ *  - a fixed node ignores any loss arriving at or after tf, and recovers at tf at the latest;
+ *  - losses that happened before a fix stay in the record (no rewriting history).
+ * With no fixes every R is ∞ and the model is exactly the one above.
  */
 import type { DependencyEdge, Facility, ID, ImpactClock } from '../types';
 import { mulberry32, sampleTriangular } from './rng';
@@ -23,6 +32,8 @@ export interface CascadeOptions {
   seed?: number;
   /** Additional edges (what-if, derived water edges, opted-in candidates). Used regardless of `confirmed`. */
   extraEdges?: DependencyEdge[];
+  /** Operator fixes: the asset is repaired / protected from `t` on (see the header). */
+  fixes?: { assetId: ID; t: number }[];
 }
 
 export function runCascade(
@@ -45,6 +56,7 @@ export function runCascade(
   };
   for (const e of edges) { ensure(e.from); ensure(e.to); }
   for (const f of faults) ensure(f.assetId);
+  for (const f of opts.fixes ?? []) ensure(f.assetId);
   const N = ids.length;
   const E = edges.length;
   const from = Int32Array.from(edges, (e) => index.get(e.from)!);
@@ -86,12 +98,21 @@ export function runCascade(
     faultT[n] = Math.min(faultT[n], f.t);
   }
 
+  const fixT = new Float64Array(N).fill(Infinity);
+  for (const f of opts.fixes ?? []) {
+    const n = index.get(f.assetId)!;
+    fixT[n] = Math.min(fixT[n], f.t);
+  }
+  const hasFixes = (opts.fixes ?? []).length > 0;
+
   // Per-node accumulators across runs
   const times: Float64Array[] = Array.from({ length: N }, () => new Float64Array(runs));
+  const recov: Float64Array[] = Array.from({ length: N }, () => new Float64Array(runs));
   const pathCounts: Map<string, number>[] = Array.from({ length: N }, () => new Map());
 
   const delay = new Float64Array(E);
   const loss = new Float64Array(N);
+  const rec = new Float64Array(N);
   /** cause[n]: edge index that determined the loss time, -1 = own fault, -2 = not lost */
   const cause = new Int32Array(N);
 
@@ -100,30 +121,48 @@ export function runCascade(
       const d = edges[i].delay;
       delay[i] = sampleTriangular(rand, d.min, d.mode, d.max);
     }
-    for (let n = 0; n < N; n++) { loss[n] = faultT[n]; cause[n] = faultT[n] < Infinity ? -1 : -2; }
+    // own faults: a fix at or before the fault prevents it; otherwise the fix ends it
+    for (let n = 0; n < N; n++) {
+      const own = faultT[n] < fixT[n] ? faultT[n] : Infinity;
+      loss[n] = own; rec[n] = own < Infinity ? fixT[n] : Infinity; cause[n] = own < Infinity ? -1 : -2;
+    }
 
-    // Dijkstra-like relaxation: values only ever decrease, so iterate to a fixpoint.
+    // Relax to a fixpoint. Each node is recomputed from its own fault and its upstream groups.
     for (let pass = 0; pass <= N; pass++) {
       let changed = false;
       for (const n of order) {
         const gs = groups[n];
         if (gs.length === 0) continue;
-        let best = Infinity;
-        let bestEdge = -2;
+        const own = faultT[n] < fixT[n] ? faultT[n] : Infinity;
+        let bestL = own;
+        let bestCause = own < Infinity ? -1 : -2;
+        // recovery = when every active cause has recovered (own fault: only a fix ends it)
+        let maxR = own < Infinity ? fixT[n] : -Infinity;
+        let gBest = Infinity;
+        let gBestEdge = -2;
         for (const g of gs) {
           let worst = -Infinity;
           let worstEdge = -2;
+          let gR = Infinity;
           for (const ei of g) {
-            const t = loss[from[ei]] + delay[ei];
+            const f = from[ei];
+            const arrive = loss[f] + delay[ei];
+            const t = arrive < rec[f] ? arrive : Infinity; // upstream back before the buffer ran out
             if (t > worst) { worst = t; worstEdge = ei; }
+            if (rec[f] < gR) gR = rec[f]; // the group is back when its first member is
           }
-          if (worst < best) { best = worst; bestEdge = worstEdge; }
+          if (worst === Infinity || worst >= fixT[n]) continue;
+          gR = Math.min(gR, fixT[n]);
+          if (worst >= gR) continue;
+          if (gR > maxR) maxR = gR;
+          if (worst < gBest) { gBest = worst; gBestEdge = worstEdge; }
         }
         // Prefer the propagated cause on ties so paths show where the loss came from.
-        if (best < Infinity && best <= loss[n] && (best < loss[n] || cause[n] !== bestEdge)) {
-          if (best < loss[n]) changed = true;
-          loss[n] = best;
-          cause[n] = bestEdge;
+        if (gBest < Infinity && gBest <= bestL) { bestL = gBest; bestCause = gBestEdge; }
+        const newR = bestL === Infinity ? Infinity : Math.min(maxR, fixT[n]);
+        if (bestL !== loss[n] || newR !== rec[n] || bestCause !== cause[n]) {
+          if (bestL !== loss[n] || newR !== rec[n]) changed = true;
+          loss[n] = bestL; rec[n] = newR; cause[n] = bestCause;
         }
       }
       if (!changed) break;
@@ -132,6 +171,7 @@ export function runCascade(
     for (let n = 0; n < N; n++) {
       const lost = loss[n] <= horizon;
       times[n][r] = lost ? loss[n] : Infinity;
+      recov[n][r] = lost ? rec[n] : Infinity;
       if (!lost) continue;
       // trace propagation path back to a fault: edge indices, root first
       const chain: number[] = [];
@@ -184,6 +224,14 @@ export function runCascade(
       path,
       weakestAssumption: weakest?.basis,
     };
+    if (hasFixes) {
+      // median recovery over the runs where this node was lost (∞ = stays down)
+      const rs: number[] = [];
+      for (let r = 0; r < runs; r++) if (times[n][r] !== Infinity) rs.push(recov[n][r]);
+      rs.sort((a, b) => a - b);
+      const m = rs[Math.max(0, Math.ceil(0.5 * rs.length) - 1)];
+      result[ids[n]].recoveredP50 = m === undefined || m === Infinity ? null : Math.round(m * 10) / 10;
+    }
   }
   return result;
 }

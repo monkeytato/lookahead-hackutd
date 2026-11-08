@@ -246,3 +246,10 @@ a.m-row:active { background: var(--layer-hover); }
 .m-tabs a.is-active { color: #f4f4f4; }
 .m-tabs a.is-active::before { content: ''; position: absolute; top: 0; left: 20%; right: 20%; height: 2px; background: var(--interactive); }
 .m-badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; line-height: 16px; font-weight: 500; text-align: center; background: #f4f4f4; color: #161616; }
+
+/* fix flow + rank reasons inside an expanded incident */
+.m-subh { margin: 12px 0 6px; font-size: 12px; letter-spacing: .32px; text-transform: uppercase; color: var(--text-2); font-weight: 600; }
+.m-inc-more .fixes .btn { min-height: 44px; width: 100%; }
+.m-inc-more .fix-ordered .fix-cancel { min-height: 36px; }
+.m-why { margin-top: 10px; }
+.m-why summary { cursor: pointer; color: var(--interactive); font-size: 13px; min-height: 32px; display: flex; align-items: center; }

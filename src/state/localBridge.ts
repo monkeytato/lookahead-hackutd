@@ -17,6 +17,8 @@ import { diagnose, followUp } from '../domain/rig/diagnose';
 import { MIN_HOLD_S, TARGET_HOLD_S, type BridgeStatus, type RigEvent, type RigFrame, type Scan, type ScanRequest, type StampedFrame } from '../domain/rig/protocol';
 import { summarizeScan } from '../domain/rig/scan';
 import { SimRig } from '../domain/rig/simDevice';
+import { getScenario } from '../domain/scenarios';
+import { applyStageCommand, initialStage, parseStageCommand } from '../stage/protocol';
 
 export type BridgeListener = (event: string, data: unknown) => void;
 export interface LocalResponse { status: number; body: unknown }
@@ -52,6 +54,9 @@ export function createLocalBridge() {
   let device: BridgeStatus['device'] = { mode: 'simulated', port: null, deviceId: null, firmware: null, lastFrameAt: null, framesReceived: 0 };
   let active: { id: string; assetId: string; point: string; operator: string; requestId?: string; startedAt: string; autoStop: number } | null = null;
   let saveTimer: number | undefined;
+  // API parity with the real bridge. The stage itself travels over room/local in the static build
+  // (this in-page bridge is per page, so it cannot share state between devices).
+  let stage = initialStage('scn-riser-leak');
 
   const broadcast = (event: string, data: unknown) => { for (const l of listeners) l(event, data); };
   const save = () => {
@@ -152,8 +157,17 @@ export function createLocalBridge() {
       if (path === '/api/requests') return ok(store.requests.filter((r) => r.status === 'open'));
       if (path === '/api/actions') return ok(store.actions.slice(-50));
       if (path === '/api/director/latest') return ok(hub.latest());
+      if (path === '/api/stage') return ok({ state: stage, now: Date.now(), screens: listeners.size });
       if (path.startsWith('/api/frames')) return ok(frames.slice(-120));
       return err(404, 'not found');
+    }
+    if (path === '/api/stage') {
+      const cmd = parseStageCommand(b.cmd);
+      if (!cmd) return err(400, 'invalid stage command');
+      stage = applyStageCommand(stage, cmd, getScenario(cmd.type === 'scenario' ? cmd.scenarioId : stage.scenarioId).horizonMin);
+      const payload = { state: stage, now: Date.now(), screens: listeners.size };
+      broadcast('stage', payload);
+      return ok(payload);
     }
     if (path === '/api/scans/start') {
       const assetId = str(b.assetId, 24), point = str(b.point), operator = str(b.operator, 60) ?? 'unknown';

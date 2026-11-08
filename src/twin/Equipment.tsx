@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import type { ThreeEvent } from '@react-three/fiber';
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import type { Asset, AssetVisualState, Waypoint, Zone } from '../domain/types';
 import { SEVERITY_COLOR, zoneElevation } from './constants';
 import { buildAssetGeometry } from './shapes';
+import { useAnim } from './anim';
 
 interface Props {
   assets: Asset[];
@@ -28,14 +29,40 @@ function frameGeometry(w: number, d: number, inset = 0.22, band = 0.1) {
 }
 
 export function Equipment({ assets, zones, waypoints, visual, hoveredId, onHover, onPick }: Props) {
+  const anim = useAnim();
+  const invalidate = useThree((s) => s.invalidate);
   const items = useMemo(() => {
     const wpById = new Map(waypoints.map((w) => [w.id, w]));
-    return assets.map((a) => ({
+    const keys = assets.map((a) => a.pos.x + a.pos.z * 0.35);
+    const lo = Math.min(...keys), hi = Math.max(...keys);
+    return assets.map((a, i) => ({
       a,
       elev: zoneElevation(zones, a.zoneId),
       geo: buildAssetGeometry(a, wpById.get(a.accessWaypoint)),
+      order: hi > lo ? (keys[i] - lo) / (hi - lo) : 0,
     }));
   }, [assets, zones, waypoints]);
+
+  // build-in rise + lost sink, animated on the mesh refs (no re-render)
+  const refs = useRef(new Map<string, THREE.Mesh>());
+  const sink = useRef(new Map<string, number>());
+  useFrame((_, dt) => {
+    const k = 1 - Math.exp(-Math.min(dt, 0.1) * 5);
+    let moving = false;
+    for (const { a, elev, order } of items) {
+      const m = refs.current.get(a.id);
+      if (!m) continue;
+      const target = visual[a.id]?.lost && a.type !== 'pipe' && a.type !== 'drain' ? 1 : 0;
+      let cur = sink.current.get(a.id) ?? target;
+      if (Math.abs(target - cur) > 0.001) { cur += (target - cur) * (anim.reduced ? 1 : k); moving = true; } else cur = target;
+      sink.current.set(a.id, cur);
+      const b = anim.buildAt(order);
+      m.scale.y = Math.max(0.001, b);
+      m.position.y = (a.type === 'pipe' ? 0 : elev) - 0.12 * cur;
+      m.rotation.z = 0.03 * cur;
+    }
+    if (moving) invalidate();
+  });
 
   useEffect(() => () => items.forEach((i) => i.geo.dispose()), [items]);
 
@@ -43,6 +70,8 @@ export function Equipment({ assets, zones, waypoints, visual, hoveredId, onHover
     base: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.05 }),
     hover: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.05, emissive: new THREE.Color('#2a2a2a') }),
     stale: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, transparent: true, opacity: 0.55, depthWrite: true }),
+    // lost: lights out — dark, flat, desaturated
+    lost: new THREE.MeshStandardMaterial({ color: '#4a4a4a', vertexColors: true, roughness: 1, metalness: 0 }),
     frame: Object.fromEntries((['advisory', 'warning', 'critical'] as const).map((s) => [
       s, new THREE.MeshBasicMaterial({ color: SEVERITY_COLOR[s], toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2 }),
     ])) as Record<'advisory' | 'warning' | 'critical', THREE.MeshBasicMaterial>,
@@ -64,10 +93,11 @@ export function Equipment({ assets, zones, waypoints, visual, hoveredId, onHover
       {items.map(({ a, elev, geo }) => {
         const v = visual[a.id];
         const stale = v?.freshness === 'stale' || v?.freshness === 'missing';
-        const mat = hoveredId === a.id ? mats.hover : stale ? mats.stale : mats.base;
+        const mat = hoveredId === a.id ? mats.hover : v?.lost ? mats.lost : stale ? mats.stale : mats.base;
         return (
           <mesh
             key={a.id}
+            ref={(m) => { if (m) refs.current.set(a.id, m); else refs.current.delete(a.id); }}
             geometry={geo}
             material={mat}
             position={[a.pos.x, a.type === 'pipe' ? 0 : elev, a.pos.z]}

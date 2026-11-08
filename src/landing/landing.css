@@ -318,3 +318,9 @@
   .lp-iso-water { animation: lp-seep 4s var(--ease) infinite alternate; }
 }
 @keyframes lp-seep { from { fill-opacity: 0.7; } to { fill-opacity: 1; } }
+
+/* presenting: projector + phone remote entry points (artifact links can't carry #/stage) */
+.lp-present { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 20px; font-size: 14px; }
+.lp-present-k { font-size: 12px; letter-spacing: .32px; text-transform: uppercase; color: var(--text-3, #6f6f6f); }
+.lp-present a { color: var(--interactive, #0f62fe); text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; }
+.lp-present a:hover { text-decoration: underline; }

@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import type { Freshness, ImpactClock, Severity, Verdict } from '../domain/types';
+import { clockText } from '../app/forecast';
 
 /** ISA-101 redundant alarm marker: shape + number + color. Normal renders nothing. */
 export function SevMark({ sev, size = 14, label }: { sev: Severity; size?: number; label?: boolean }) {
@@ -43,24 +44,22 @@ export const verdictLabel = (v: Verdict | 'unverified') => verdictText[v];
  */
 export function Countdown({ clock, now, horizon = 60, compact }: { clock: ImpactClock; now: number; horizon?: number; compact?: boolean }) {
   const p50 = clock.p50;
-  const lost = p50 != null && p50 <= now;
-  const rem = (v: number | null) => (v == null ? null : Math.max(0, Math.round(v - now)));
-  const lo = rem(clock.p10), mid = rem(p50), hi = rem(clock.p90);
+  const txt = clockText(clock, now, horizon);
   const pct = (v: number | null, fallback: number) => `${(Math.min(horizon, Math.max(0, (v ?? fallback) - now)) / horizon) * 100}%`;
   return (
-    <div className={`cd ${compact ? 'cd-compact' : ''} ${lost ? 'cd-lost' : ''}`}>
+    <div className={`cd ${compact ? 'cd-compact' : ''} ${txt.lost ? 'cd-lost' : ''}`} title={txt.likelihood}>
       <div className="cd-value mono">
-        {lost ? <>LOST</> : mid == null ? <>&gt;{horizon}<small> min</small></> : <>T−{mid}<small> min</small></>}
-        {!lost && lo != null && <span className="cd-range"> ({lo}–{hi ?? `>${horizon}`})</span>}
+        {txt.lost ? <>LOST</> : p50 == null ? <>&gt;{horizon}<small> min</small></> : <>{txt.main.replace(' min', '')}<small> min</small></>}
+        {txt.range && <span className="cd-range"> {txt.range}</span>}
       </div>
-      {!compact && (
+      {!compact && !txt.lost && (
         <div className="cd-bar" aria-hidden="true">
           <span className="cd-band" style={{ left: pct(clock.p10, horizon), right: `calc(100% - ${pct(clock.p90, now + horizon)})` }} />
           <span className="cd-likely" style={{ left: `calc(${pct(p50, horizon)} - 1px)` }} />
           <span className="cd-now" />
         </div>
       )}
-      {!compact && <div className="cd-prob">{Math.round(clock.probWithinHorizon * 100)}% of runs lost within {horizon} min</div>}
+      {!compact && <div className="cd-prob">{txt.lost ? 'Modeled as lost' : txt.likelihood}</div>}
     </div>
   );
 }

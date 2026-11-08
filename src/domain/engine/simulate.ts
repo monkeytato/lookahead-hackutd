@@ -11,6 +11,10 @@
  *  4. Readings / visual state are computed lazily per `t` and memoized. Besides the contract's
  *     seed + step + thermal readings, fresh installed sensors emit a "heartbeat" (repeat of their
  *     last value) until their asset is lost — otherwise every sensor would look stale after ~10 min.
+ *  5. Fixes: each Fix repairs its asset from effectiveAt (cascade recovery semantics). Isolating a
+ *     leak's source stops the water; suppressing a fire's origin stops the front.
+ *  6. Hazards (fire): assets reached by the front become faults at their arrival time, with a
+ *     derived shares_space edge from the origin (basisKind 'assumption').
  */
 import type {
   AssetVisualState, DependencyEdge, Facility, Fix, Freshness, HazardFrame, ID, ImpactClock, Reading, Scenario, ScenarioStep, Severity, WaterGrid,
@@ -19,6 +23,7 @@ import { runCascade } from './cascade';
 import { freshness, latestReadings, maxSeverity, severityFor } from './readings';
 import { inletTempAt } from './thermal';
 import { simulateWater, waterArrival } from './water';
+import { hazardArrival, hazardFrameAt } from './hazard';
 
 export interface ScenarioRunInput {
   facility: Facility;
@@ -59,19 +64,26 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
   const { facility, scenario, seedReadings } = input;
   const horizon = scenario.horizonMin;
 
+  // ---- fixes: asset → earliest effective minute
+  const restoredAt: Record<ID, number> = {};
+  for (const f of input.fixes ?? []) restoredAt[f.assetId] = Math.min(restoredAt[f.assetId] ?? Infinity, f.effectiveAt);
+  const fixAt = (id: ID) => restoredAt[id] ?? Infinity;
+
   // ---- 1–2. water layer → wet faults + derived edges
   let water: WaterGrid | undefined;
   let arrival: Record<ID, number> = {};
   const derivedEdges: DependencyEdge[] = [];
   const wetFaults: { assetId: ID; t: number }[] = [];
+
   if (scenario.leak) {
-    const leak = scenario.leak;
+    // leak source = nearest pipe or coolant unit to the leak point (falls back to a synthetic id)
+    const sourceId = leakSource(facility, scenario.leak);
+
+    // isolating the source stops the water at the fix time
+    const stop = Math.min(scenario.leak.stopT ?? Infinity, fixAt(sourceId));
+    const leak = stop < Infinity ? { ...scenario.leak, stopT: stop } : scenario.leak;
     water = simulateWater(facility, leak, horizon);
     arrival = waterArrival(water, facility);
-    // leaking pipe = nearest pipe asset to the leak point (falls back to a synthetic id)
-    const pipes = facility.assets.filter((a) => a.type === 'pipe');
-    pipes.sort((a, b) => Math.hypot(a.pos.x - leak.x, a.pos.z - leak.z) - Math.hypot(b.pos.x - leak.x, b.pos.z - leak.z));
-    const sourceId = pipes[0]?.id ?? 'LEAK';
     wetFaults.push({ assetId: sourceId, t: leak.startT });
     for (const [assetId, t] of Object.entries(arrival)) {
       if (t > horizon) continue;
@@ -91,6 +103,25 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
     }
   }
 
+  // ---- fire hazards → burn faults + derived edges (smoke is drawn, not a fault)
+  const fireArrival: Record<ID, number> = {};
+  for (const h of scenario.hazards ?? []) {
+    if (h.kind !== 'fire') continue;
+    const arr = hazardArrival(facility, h, horizon, fixAt(h.originAssetId));
+    for (const [assetId, t] of Object.entries(arr)) {
+      fireArrival[assetId] = Math.min(fireArrival[assetId] ?? Infinity, t);
+      wetFaults.push({ assetId, t });
+      if (assetId === h.originAssetId) continue;
+      const d = Math.max(0, t - h.startT);
+      derivedEdges.push({
+        id: `FIRE-${h.originAssetId}-${assetId}`, from: h.originAssetId, to: assetId, kind: 'shares_space',
+        delay: { min: d, mode: d, max: d },
+        basis: `Fire spread from ${h.originAssetId} at ~${h.spreadMPerMin} m/min reaches it at t=${t} min — assumption, not a fire model`,
+        basisKind: 'assumption', confirmed: true, revision: 1,
+      });
+    }
+  }
+
   // ---- 3. cascade
   const faults = [...scenario.faults, ...(input.extraFaults ?? []), ...wetFaults];
   const clocks = runCascade(facility, faults, {
@@ -98,6 +129,7 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
     runs: input.runs,
     seed: input.seed,
     extraEdges: [...(input.extraEdges ?? []), ...derivedEdges],
+    fixes: (input.fixes ?? []).map((f) => ({ assetId: f.assetId, t: f.effectiveAt })),
   });
 
   // ---- cooling-loss time per rack (p50 of its cooling sources, redundancy-aware)
@@ -199,8 +231,16 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
       for (const r of installed) severity = maxSeverity(severity, severityFor(r.metric, r.value, facility.thresholds));
 
       const c = clocks[a.id];
+      const fixT = fixAt(a.id);
+      const recovered = c?.recoveredP50 != null && c.p50 !== null && c.recoveredP50 <= t;
+      const restored = fixT <= t || recovered;
+      const lostAt = c?.p50 ?? null;
+      const lostBeforeRestore = lostAt !== null && lostAt <= t && (fixT === Infinity || lostAt < fixT);
       let clockMin: number | undefined;
-      if (c) {
+      if (c && restored) {
+        // repaired: the clock stops; an asset that went down first is shown as recovering
+        if (lostBeforeRestore) severity = maxSeverity(severity, 'advisory');
+      } else if (c) {
         let cs: Severity = 'advisory';
         if (c.p50 !== null) {
           const left = c.p50 - t;
@@ -225,6 +265,9 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
       const state: AssetVisualState = { severity, freshness: fr, heat };
       if (clockMin !== undefined) state.clockMin = clockMin;
       if (arrival[a.id] !== undefined && arrival[a.id] <= t) state.wet = true;
+      if (lostAt !== null && lostAt <= t && !restored) state.lost = true;
+      if (restored && (fixT <= t || lostBeforeRestore)) state.restored = true;
+      if (fireArrival[a.id] !== undefined && fireArrival[a.id] <= t) state.burning = true;
       out[a.id] = state;
     }
     visualMemo.set(t, out);
@@ -233,9 +276,21 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
 
   const stepsUntil = (t: number) => scenario.steps.filter((s) => s.t <= t);
 
-  const restoredAt: Record<ID, number> = {};
-  for (const f of input.fixes ?? []) restoredAt[f.assetId] = Math.min(restoredAt[f.assetId] ?? Infinity, f.effectiveAt);
-  const hazardAt = (_t: number): HazardFrame[] => []; // TODO(engine agent): hazards
+  const hazardAt = (t: number): HazardFrame[] => {
+    const out: HazardFrame[] = [];
+    for (const h of scenario.hazards ?? []) {
+      const f = hazardFrameAt(h, t, fixAt(h.originAssetId));
+      if (f) out.push(f);
+    }
+    return out;
+  };
 
   return { clocks, water, waterArrival: arrival, derivedEdges, readingsAt, visualAt, stepsUntil, hazardAt, restoredAt };
+}
+
+/** The asset a leak comes from: nearest pipe or coolant distribution unit to the leak point. */
+export function leakSource(facility: Facility, leak: { x: number; z: number }): ID {
+  const cands = facility.assets.filter((a) => a.type === 'pipe' || a.type === 'cdu');
+  cands.sort((a, b) => Math.hypot(a.pos.x - leak.x, a.pos.z - leak.z) - Math.hypot(b.pos.x - leak.x, b.pos.z - leak.z));
+  return cands[0]?.id ?? 'LEAK';
 }

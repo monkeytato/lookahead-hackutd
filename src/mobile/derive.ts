@@ -14,7 +14,7 @@ export function clockText(clock: ImpactClock, now: number, horizon = 60): { main
   const lo = rem(clock.p10), hi = rem(clock.p90);
   return {
     main: mid == null ? `>${horizon}` : `T−${mid}`,
-    range: mid == null || lo == null ? null : `${lo}–${hi ?? `>${horizon}`}`,
+    range: mid == null || lo == null || lo === hi ? null : `${lo}–${hi ?? `>${horizon}`}`,
     lost: false,
   };
 }

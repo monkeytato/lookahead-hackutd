@@ -283,6 +283,8 @@ export interface ImpactClock {
   path: ID[];
   /** The delay assumption most likely to be wrong (largest spread on the path) */
   weakestAssumption?: string;
+  /** Only when fixes were applied: median minute this node comes back in the runs where it was lost (null = stays down) */
+  recoveredP50?: number | null;
 }
 
 /** Visual state the 3D twin + 2D map paint per asset. */
@@ -374,7 +376,8 @@ export interface Scenario {
   basis: string;
   horizonMin: number;
   faults: { assetId: ID; t: number }[];
-  leak?: { x: number; z: number; ratePerMin: number; startT: number };
+  /** stopT: the leak stops adding water from this minute (set by the engine when the source is isolated) */
+  leak?: { x: number; z: number; ratePerMin: number; startT: number; stopT?: number };
   steps: ScenarioStep[];
   /** 'real' = adapted from a public incident report; 'random' = generated; 'what-if' = engineering case */
   kind?: 'real' | 'random' | 'what-if';

@@ -26,6 +26,8 @@ import { SimRig } from '../src/domain/rig/simDevice';
 import { summarizeScan } from '../src/domain/rig/scan';
 import { diagnose, followUp } from '../src/domain/rig/diagnose';
 import { createAgentHub } from './agentHub';
+import { createStageHub } from './stageHub';
+import type { StageState } from '../src/stage/protocol';
 import type { PendingAction } from './director/types';
 import { loadEnv } from './env';
 import { DEFAULT_MODEL } from './director/nemotron';
@@ -44,7 +46,7 @@ const MAX_FRAMES = 900; // 15 min at 1 Hz
 let framesReceived = 0;
 let badLines = 0;
 
-interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[] }
+interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[]; stage?: StageState }
 const store: Store = loadStore();
 
 let device: BridgeStatus['device'] = { mode: 'disconnected', port: null, deviceId: null, firmware: null, lastFrameAt: null, framesReceived: 0 };
@@ -245,6 +247,15 @@ const hub = createAgentHub({
   env: process.env,
 });
 
+// ----------------------------------------------------------------- stage
+
+const stage = createStageHub({
+  initial: store.stage,
+  save: (st) => { store.stage = st; save(); },
+  broadcast: (payload) => broadcast('stage', payload),
+  screens: () => clients.size,
+});
+
 // ------------------------------------------------------------------ http
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
@@ -267,10 +278,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/stream') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
       res.write(`event: status\ndata: ${JSON.stringify(status())}\n\n`);
-      res.write(`event: hello\ndata: ${JSON.stringify({ frames: frames.slice(-120), scans: store.scans.slice(-30), requests: store.requests.filter((r) => r.status === 'open'), events: store.events.slice(-20), actions: store.actions.slice(-20), director: hub.latest() })}\n\n`);
       clients.add(res);
+      res.write(`event: hello\ndata: ${JSON.stringify({ frames: frames.slice(-120), scans: store.scans.slice(-30), requests: store.requests.filter((r) => r.status === 'open'), events: store.events.slice(-20), actions: store.actions.slice(-20), director: hub.latest(), stage: stage.payload() })}\n\n`);
+      stage.announce(); // screen count changed
       const ka = setInterval(() => res.write(': ka\n\n'), 15000);
-      req.on('close', () => { clearInterval(ka); clients.delete(res); });
+      req.on('close', () => { clearInterval(ka); clients.delete(res); stage.announce(); });
       return;
     }
     if (req.method === 'GET' && p === '/api/status') return json(res, 200, { ...status(), badLines });
@@ -337,6 +349,12 @@ const server = http.createServer(async (req, res) => {
         question: str(b.question, 500) ?? undefined,
       });
       return json(res, 200, { ...rec.result, recordId: rec.id, chainId: rec.chainId });
+    }
+    if (req.method === 'GET' && p === '/api/stage') return json(res, 200, stage.payload());
+    if (req.method === 'POST' && p === '/api/stage') {
+      const b = await readBody(req, 16_000);
+      const r = stage.command(b.cmd);
+      return r.ok ? json(res, 200, r.payload) : json(res, 400, { error: r.error });
     }
     if (req.method === 'GET' && p === '/api/director/latest') return json(res, 200, hub.latest());
     if (req.method === 'GET' && p === '/api/actions') return json(res, 200, store.actions.slice(-50));

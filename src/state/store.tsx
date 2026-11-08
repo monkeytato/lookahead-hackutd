@@ -3,11 +3,14 @@
  * Prototype persistence: localStorage + BroadcastChannel so a second tab sees the same records.
  * This is NOT production auth or storage — the role switch is a demo persona, not a permission.
  */
-import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import {
-  employees as seedEmployees, facility, scenarios, seedIncidents, seedReadings, seedTasks,
+  employees as seedEmployees, facility, seedIncidents, seedReadings, seedTasks,
   SCENARIO_WALL_START,
 } from '../domain/fixture';
+import type { Fix, Scenario } from '../domain/types';
+import { useStage } from '../stage/StageProvider';
+import { incidentsFor } from '../domain/scenarios';
 import type {
   DependencyEdge, Employee, Incident, OpEvent, Reading, Task, VerificationSession, ID,
 } from '../domain/types';
@@ -24,11 +27,17 @@ export interface Layers { heat: boolean; water: boolean; deps: boolean; people: 
 export type Persona = 'supervisor' | 'technician' | 'shift_lead';
 
 export interface OpsState {
-  schema: 4;
+  schema: 5;
+  /** Stage run these operator records belong to (a scenario switch or reset starts a new one) */
+  stageEpoch: number;
+  /** Stage fixes already written to the log as ordered / in effect */
+  fixesLogged: ID[];
+  fixesInEffect: ID[];
   /** Scans from the bridge already turned into evidence */
   ingestedScanIds: ID[];
   /** Only bridge scans finished after this ISO time belong to this demo session */
   sessionStartedAt: string;
+  /** Mirrored from the stage (src/stage): the stage is the source of truth for these three */
   scenarioId: ID;
   t: number;
   playing: boolean;
@@ -49,11 +58,14 @@ export interface OpsState {
   persona: Persona;
 }
 
-const STORAGE_KEY = 'lookahead.ops.v3';
+const STORAGE_KEY = 'lookahead.ops.v5';
 
-export function initialState(scenarioId = scenarios[0].id): OpsState {
+export function initialState(scenarioId = 'scn-riser-leak', stageEpoch = 0): OpsState {
   return {
-    schema: 4,
+    schema: 5,
+    stageEpoch,
+    fixesLogged: [],
+    fixesInEffect: [],
     ingestedScanIds: [],
     sessionStartedAt: new Date().toISOString(),
     scenarioId,
@@ -76,6 +88,10 @@ export function initialState(scenarioId = scenarios[0].id): OpsState {
 
 type Action =
   | { type: 'reset'; scenarioId?: ID }
+  | { type: 'reset_records'; scenarioId: ID; epoch: number }
+  | { type: 'fix_logged'; fixId: ID; event: OpEvent; epoch: number }
+  | { type: 'fix_in_effect'; fix: Fix; event: OpEvent; epoch: number }
+  | { type: 'engine_incident'; incident: Incident; event: OpEvent; epoch: number }
   | { type: 'hydrate'; state: OpsState }
   | { type: 'set_t'; t: number }
   | { type: 'play'; playing: boolean }
@@ -92,8 +108,20 @@ type Action =
   | { type: 'ingest_scan'; scanId: ID; reading: Reading | null; session: VerificationSession | null; incident: Incident | null; event: OpEvent };
 
 function reducer(s: OpsState, a: Action): OpsState {
+  // Stage-driven actions belong to one run: drop them if the records have moved to another run.
+  if ((a.type === 'fix_logged' || a.type === 'fix_in_effect' || a.type === 'engine_incident') && a.epoch !== s.stageEpoch) return s;
   switch (a.type) {
-    case 'reset': return { ...initialState(a.scenarioId ?? s.scenarioId), persona: s.persona };
+    case 'engine_incident':
+      return s.incidents.some((i) => i.id === a.incident.id) ? s : { ...s, incidents: [...s.incidents, a.incident], events: [...s.events, a.event] };
+    case 'reset': return { ...initialState(a.scenarioId ?? s.scenarioId, s.stageEpoch), persona: s.persona };
+    case 'reset_records': return { ...initialState(a.scenarioId, a.epoch), persona: s.persona };
+    case 'fix_logged':
+      return s.fixesLogged.includes(a.fixId) ? s : { ...s, fixesLogged: [...s.fixesLogged, a.fixId], events: [...s.events, a.event] };
+    case 'fix_in_effect': {
+      if (s.fixesInEffect.includes(a.fix.id)) return s;
+      const incidents = s.incidents.map((i) => (i.rootAssetId === a.fix.assetId && i.status === 'open' ? { ...i, status: 'monitoring' as const } : i));
+      return { ...s, incidents, fixesInEffect: [...s.fixesInEffect, a.fix.id], events: [...s.events, a.event] };
+    }
     case 'hydrate': return a.state;
     case 'set_t': return { ...s, t: a.t };
     case 'play': return { ...s, playing: a.playing };
@@ -185,10 +213,12 @@ export function relMin(now: number, t: number): string {
 // ----------------------------------------------------------------- context
 
 interface Ctx {
+  /** Operator records, with scenarioId / t / playing mirrored from the stage */
   state: OpsState;
+  /** Store actions. set_t / play / reset are forwarded to the stage so every screen follows. */
   dispatch: (a: Action) => void;
   run: ScenarioRun;
-  scenario: (typeof scenarios)[number];
+  scenario: Scenario;
   /** Incidents visible at the current scrub time */
   visibleIncidents: Incident[];
   /** Candidate + derived edges the engine currently uses on top of confirmed ones */
@@ -202,69 +232,111 @@ function load(): OpsState | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as OpsState;
-    return parsed.schema === 4 ? { ...parsed, playing: false } : null;
+    return parsed.schema === 5 ? { ...parsed, playing: false } : null;
   } catch { return null; }
 }
 
 export function OpsProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, undefined, () => load() ?? initialState());
+  const stage = useStage();
+  const [inner, innerDispatch] = useReducer(reducer, undefined, () => load() ?? initialState(stage.state.scenarioId, stage.state.epoch));
   const channel = useRef<BroadcastChannel | null>(null);
   const fromRemote = useRef(false);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const epochRef = useRef(stage.state.epoch);
+  useEffect(() => { epochRef.current = stage.state.epoch; }, [stage.state.epoch]);
 
   // persist + broadcast (second tab sees the same record — acceptance A17)
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, playing: false })); } catch { /* storage unavailable: in-memory only */ }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...inner, playing: false })); } catch { /* storage unavailable: in-memory only */ }
     if (fromRemote.current) { fromRemote.current = false; return; }
-    try { channel.current?.postMessage(state); } catch { /* channel closed during remount */ }
-  }, [state]);
+    try { channel.current?.postMessage(inner); } catch { /* channel closed during remount */ }
+  }, [inner]);
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
     let ch: BroadcastChannel;
     try { ch = new BroadcastChannel(STORAGE_KEY); } catch { return; } // sandboxed frames may refuse it
-    ch.onmessage = (m) => { fromRemote.current = true; dispatch({ type: 'hydrate', state: { ...(m.data as OpsState), playing: false } }); };
+    ch.onmessage = (m) => {
+      const other = m.data as OpsState;
+      // another tab's records from an older (or newer) run would resurrect its incidents: ignore
+      if (other?.schema !== 5 || other.stageEpoch !== epochRef.current) return;
+      fromRemote.current = true;
+      innerDispatch({ type: 'hydrate', state: { ...other, playing: false } });
+    };
     channel.current = ch;
     return () => { if (channel.current === ch) channel.current = null; ch.close(); };
   }, []);
 
-  // playback: 1 scenario minute per 400 ms
+  // The stage decides the run: a scenario switch or a reset (new epoch) starts fresh operator records.
+  const { scenarioId: stageScenarioId, epoch: stageEpoch, fixes, playing } = stage.state;
+  const t = stage.t;
+  const current = inner.scenarioId === stageScenarioId && inner.stageEpoch === stageEpoch;
   useEffect(() => {
-    if (!state.playing) return;
-    const scenario = scenarios.find((s) => s.id === state.scenarioId)!;
-    const id = window.setInterval(() => {
-      dispatch({ type: 'set_t', t: Math.min(scenario.horizonMin, +(stateRef.current.t + 0.5).toFixed(1)) });
-      if (stateRef.current.t >= scenario.horizonMin) dispatch({ type: 'play', playing: false });
-    }, 200);
-    return () => window.clearInterval(id);
-  }, [state.playing, state.scenarioId]);
+    if (!current) innerDispatch({ type: 'reset_records', scenarioId: stageScenarioId, epoch: stageEpoch });
+  }, [current, stageScenarioId, stageEpoch]);
 
-  const scenario = scenarios.find((s) => s.id === state.scenarioId) ?? scenarios[0];
+  // What every view reads: records of this run (none while switching), time from the stage.
+  const records = current ? inner : initialState(stageScenarioId, stageEpoch);
+  const state = useMemo<OpsState>(() => ({ ...records, scenarioId: stageScenarioId, t, playing }), [records, stageScenarioId, t, playing]);
+
+  // Old callers (Timeline, AppShell, phone dashboard) keep working: time and scenario go to the stage.
+  const send = stage.send;
+  const dispatch = useCallback((a: Action) => {
+    switch (a.type) {
+      case 'set_t': send({ type: 'seek', t: a.t }); return;
+      case 'play': send({ type: a.playing ? 'play' : 'pause' }); return;
+      case 'reset':
+        if (a.scenarioId && a.scenarioId !== stageScenarioId) send({ type: 'scenario', scenarioId: a.scenarioId });
+        else send({ type: 'reset' });
+        return;
+      default: innerDispatch(a);
+    }
+  }, [send, stageScenarioId]);
+
+  const scenario = stage.scenario;
   const activeExtraEdges = useMemo(
     () => facility.edges.filter((e) => !e.confirmed && state.confirmedEdgeIds.includes(e.id)).map((e) => ({ ...e, confirmed: true, revision: state.graphRevision })),
     [state.confirmedEdgeIds, state.graphRevision],
   );
+  // fixes arrive as new arrays over the network: key the (expensive) run on their content
+  const fixesKey = JSON.stringify(fixes);
   const run = useMemo(
-    () => simulateScenario({ facility, scenario, seedReadings: seedReadings(), extraEdges: activeExtraEdges }),
-    [scenario, activeExtraEdges],
+    () => simulateScenario({ facility, scenario, seedReadings: seedReadings(), extraEdges: activeExtraEdges, fixes: JSON.parse(fixesKey) as Fix[] }),
+    [scenario, activeExtraEdges, fixesKey],
   );
 
   // auto-raise incidents from the scenario as the clock passes (grouped by cause)
   useEffect(() => {
-    for (const inc of derivedIncidents(scenario.id, run)) {
-      if (inc.openedAt <= state.t && !state.incidents.some((i) => i.id === inc.id)) {
-        dispatch({
-          type: 'upsert_incident', incident: inc,
+    if (!current) return;
+    let pauseFor: string | null = null;
+    for (const inc of derivedIncidents(scenario, run)) {
+      if (inc.openedAt <= t && !inner.incidents.some((i) => i.id === inc.id)) {
+        innerDispatch({
+          type: 'engine_incident', incident: inc, epoch: stageEpoch,
           event: makeEvent(inc.openedAt, { kind: 'incident', actor: 'engine', summary: `Incident opened: ${inc.title}`, links: { incidentId: inc.id, assetId: inc.rootAssetId }, source: 'simulated' }),
         });
+        // presenter beat: stop on a fresh incident (not on ones skipped over by a seek)
+        if (t - inc.openedAt <= 2) pauseFor ??= inc.title;
       }
     }
-  }, [state.t, scenario.id, run, state.incidents]);
+    if (pauseFor && stage.state.playing && stage.state.autoPause) stage.send({ type: 'pause', reason: `New incident: ${pauseFor}` });
+  }, [current, t, scenario, run, inner.incidents, stageEpoch, stage]);
 
-  const visibleIncidents = useMemo(() => state.incidents.filter((i) => i.openedAt <= state.t), [state.incidents, state.t]);
+  // fixes: log when ordered, and when they take effect (the incident at that asset → monitoring)
+  useEffect(() => {
+    if (!current) return;
+    for (const f of fixes) {
+      if (!inner.fixesLogged.includes(f.id)) {
+        innerDispatch({ type: 'fix_logged', fixId: f.id, epoch: stageEpoch, event: makeEvent(f.orderedAt, { kind: 'task', actor: 'stage', summary: `Fix ordered: ${f.label} (takes effect T+${Math.round(f.effectiveAt)})`, links: { assetId: f.assetId }, source: 'operator' }) });
+      }
+      if (f.effectiveAt <= t && !inner.fixesInEffect.includes(f.id)) {
+        innerDispatch({ type: 'fix_in_effect', fix: f, epoch: stageEpoch, event: makeEvent(f.effectiveAt, { kind: 'task', actor: 'engine', summary: `Fix in effect: ${f.label}`, links: { assetId: f.assetId }, source: 'simulated' }) });
+      }
+    }
+  }, [current, fixes, t, inner.fixesLogged, inner.fixesInEffect, stageEpoch]);
 
-  const value = useMemo<Ctx>(() => ({ state, dispatch, run, scenario, visibleIncidents, activeExtraEdges }), [state, run, scenario, visibleIncidents, activeExtraEdges]);
+  const visibleIncidents = useMemo(() => state.incidents.filter((i) => i.openedAt <= t), [state.incidents, t]);
+
+  const value = useMemo<Ctx>(() => ({ state, dispatch, run, scenario, visibleIncidents, activeExtraEdges }), [state, dispatch, run, scenario, visibleIncidents, activeExtraEdges]);
   return <OpsContext.Provider value={value}>{children}</OpsContext.Provider>;
 }
 
@@ -275,7 +347,9 @@ export function useOps(): Ctx {
 }
 
 /** Incidents the engine raises on its own during a scenario. Folded by cause, one clock each. */
-function derivedIncidents(scenarioId: ID, run: ScenarioRun): Incident[] {
+function derivedIncidents(scenario: Scenario, run: ScenarioRun): Incident[] {
+  if (scenario.incidents) return incidentsFor(scenario, run);
+  const scenarioId = scenario.id;
   if (scenarioId === 'scn-riser-leak') {
     const firstWet = Object.entries(run.waterArrival).sort((a, b) => a[1] - b[1]);
     const wetIds = firstWet.map(([id]) => id);

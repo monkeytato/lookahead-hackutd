@@ -1,5 +1,5 @@
-import { scenarios } from '../domain/fixture';
-import { useOps, wallClock, type Persona } from '../state/store';
+import { useOps, type Persona } from '../state/store';
+import { ControlBar } from './ControlBar';
 import { Operations } from '../views/Operations';
 import { TasksView } from '../views/Tasks';
 import { TeamView } from '../views/Team';
@@ -44,19 +44,11 @@ export function AppShell({ route }: { route: string }) {
           ))}
         </nav>
         <div className="topbar-right">
-          <label className="tb-field">
-            <span className="sr-only">Scenario</span>
-            <select value={state.scenarioId} onChange={(e) => dispatch({ type: 'reset', scenarioId: e.target.value })}>
-              {scenarios.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-          <span className="tb-clock mono" title="Scenario clock (simulated)">
-            {wallClock(state.t)}<small> T+{Math.floor(state.t)}</small>
-          </span>
           <span className="tb-sim" title={scenario.basis}>SIMULATED</span>
           <a className={`tb-dev tb-dev-${dev.kind}`} href="#/app/rig" title={dev.text}><i aria-hidden="true" />{dev.kind === 'live' ? 'Rig live' : dev.kind === 'sim' ? 'Rig sim' : 'Rig offline'}{age != null && dev.kind !== 'off' && age > 3 ? <em> {Math.round(age)}s</em> : null}</a>
           <a className="tb-scan" href="#/scan" target="_blank" rel="noopener">Scanner ↗</a>
-          <a className="tb-phone" href="#/m" target="_blank" rel="noopener" title="Phone dashboard — on a phone, run npm run dev:lan and open http://<laptop-ip>:5173/#/m">Phone ↗</a>
+          <a className="tb-phone" href="#/m" target="_blank" rel="noopener" title="Supervisor dashboard for a phone (#/m)">Phone ↗</a>
+          <a className="tb-phone" href="#/present" target="_blank" rel="noopener" title="Full-screen presenter view for a projector (#/present)">Present ↗</a>
           <label className="tb-field">
             <span className="sr-only">Demo persona</span>
             <select value={state.persona} onChange={(e) => dispatch({ type: 'persona', persona: e.target.value as Persona })} title="Demo persona — not authentication">
@@ -67,6 +59,7 @@ export function AppShell({ route }: { route: string }) {
           </label>
         </div>
       </header>
+      <ControlBar />
       <ScanIngest />
       <main className="main">
         {!section && <Operations />}

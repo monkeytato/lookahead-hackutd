@@ -7,6 +7,7 @@ import { assetById, checkinState, clocksForIncident, latestFor, METRIC_LABEL, RO
 import { BarBand, Btn, Countdown, EvidenceTag, FreshTag, Section, SevMark, Src, verdictLabel } from '../components/primitives';
 import { analyzeIncident } from './analysis';
 import { DirectorPanel } from './DirectorPanel';
+import { FixPanel } from './FixPanel';
 import { api, useBridge } from '../state/bridge';
 
 interface Props { sel: Selection; setSel: (s: Selection) => void; clocks: ImpactClock[]; ranked: PriorityResult[] }
@@ -70,6 +71,12 @@ function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Pro
       </header>
 
       <p className="insp-summary">{inc.summary}</p>
+
+      {inc.status !== 'resolved' && (
+        <Section title="Fix this" className="sec-fix" aside={<span className="pane-sub">what each action saves</span>}>
+          <FixPanel assetIds={[inc.rootAssetId, ...inc.alertAssetIds]} />
+        </Section>
+      )}
 
       {critical.length > 0 && (
         <Section title="How long do we have" aside={<span className="pane-sub">Monte Carlo · 400 runs · ranges</span>}>
@@ -296,6 +303,9 @@ function AssetPanel({ id, setSel }: { id: string; setSel: Props['setSel'] }) {
           {a.services?.map((s) => <span key={s} className="tag">{serviceById.get(s)?.name} · C{serviceById.get(s)?.criticality}</span>)}
         </div>
       </header>
+      <Section title="Fix this" className="sec-fix" aside={<span className="pane-sub">what each action saves</span>}>
+        <FixPanel assetIds={[a.id]} />
+      </Section>
       {clock && (
         <Section title="Time to impact">
           <Countdown clock={clock} now={t} />
@@ -354,6 +364,7 @@ function TaskPanel({ id, setSel }: { id: string; setSel: Props['setSel'] }) {
   const t = state.t;
   const task = state.tasks.find((x) => x.id === id);
   const [override, setOverride] = useState<string>('');
+  const [actErr, setActErr] = useState<string>('');
   if (!task) return null;
   const asset = assetById.get(task.assetId)!;
   const sugg = suggestAssignees(task, state.employees, facility, t);
@@ -362,7 +373,8 @@ function TaskPanel({ id, setSel }: { id: string; setSel: Props['setSel'] }) {
 
   const act = (action: Parameters<typeof transition>[1], actor = 'Priya Raman') => {
     const r = transition(task, action, { actor, t, expectedVersion: task.version });
-    if (!r.ok) { alert(`Not allowed: ${r.error}`); return; }
+    if (!r.ok) { setActErr(`Not allowed: ${r.error}`); return; }
+    setActErr('');
     dispatch({ type: 'upsert_task', task: r.task, event: { ...r.event, links: { ...r.event.links, incidentId: task.incidentId, assetId: task.assetId } } });
     if (action.type === 'assign' && task.incidentId) {
       const inc = state.incidents.find((i) => i.id === task.incidentId);
@@ -373,6 +385,7 @@ function TaskPanel({ id, setSel }: { id: string; setSel: Props['setSel'] }) {
   return (
     <div className="insp">
       <header className="insp-h">
+        {actErr && <p className="insp-err" role="alert">{actErr}</p>}
         <div className="insp-kicker mono">{task.id} · {task.type.toUpperCase()} · v{task.version}</div>
         <h2>{task.title}</h2>
         <div className="insp-tags">

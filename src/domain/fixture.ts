@@ -269,7 +269,9 @@ export const changeLog: { t: number; assetId: string; text: string }[] = [
 export const scenarios: Scenario[] = [
   {
     id: 'scn-riser-leak',
+    kind: 'real',
     name: 'Two warnings, then a leak',
+    headline: 'A chilled-water leak drifts toward the UPS and battery rooms',
     description: 'A disputed rack inlet alarm and a real CRAH-2 fan vibration compete for the same technician. At 02:14 a Level-2 riser starts leaking above the corridor; water drifts toward the UPS and battery rooms.',
     basis: 'Leak path adapted from the Google Cloud europe-west9 (Paris) incident report, April 2023: 3 h 22 min between leak and battery-room awareness. Timeline compressed and simulated.',
     horizonMin: 60,
@@ -282,10 +284,24 @@ export const scenarios: Scenario[] = [
       { t: 11, kind: 'reading', assetId: 'PIPE-L2', summary: 'Loop make-up water flow +6 % (mass-balance mismatch)', metric: 'flow_lpm', value: 38, source: 'simulated' },
       { t: 34, kind: 'fault', assetId: 'CRAH-2', summary: 'CRAH-2 fan trips on vibration — modeled if not serviced' },
     ],
+    // INC-1042/1043 are seeded at start (seedIncidents). These two open as the clock passes; the
+    // water incident is rebuilt from the run (incidentsFor) so it follows fixes.
+    incidents: [
+      { id: 'INC-1044', title: 'Possible leak — loop make-up flow +6 %', rootAssetId: 'PIPE-L2', alertAssetIds: ['PIPE-L2', 'BATT-A', 'UPS-B', 'BATT-B', 'UPS-A', 'ATS-1'],
+        severity: 'warning', status: 'open', evidence: 'unverified', shiftLeadId: 'emp-priya', openedAt: 11,
+        summary: 'Chilled-water make-up flow no longer matches supply. No leak sensor exists on Level 2; the riser above the east corridor is the only pipe run consistent with the mismatch.',
+        recentChanges: ['Vendor on site — BATT-B module replacement scheduled 03:00'], runbookId: 'RB-LEAK' },
+      { id: 'INC-1045', title: 'Water reached BATT-A — battery/UPS exposure', rootAssetId: 'BATT-A', alertAssetIds: ['BATT-A', 'UPS-B', 'BATT-B', 'UPS-A'],
+        severity: 'critical', status: 'open', evidence: 'unverified', shiftLeadId: 'emp-priya', openedAt: 12,
+        summary: 'Water layer (approximation) shows the wet front at UPS/battery equipment. Li-ion string B is past its 10-year service life.',
+        recentChanges: ['BATT-B installed 2015 — past 10-year service life', 'Vendor module work scheduled 03:00 — hold until dry'], runbookId: 'RB-BATT' },
+    ],
   },
   {
     id: 'scn-gen-nostart',
+    kind: 'real',
     name: 'Utility loss, no generator start',
+    headline: 'Utility power is lost and the generator never starts',
     description: 'Grid surge damages transfer-switch relays; GEN-1 never receives a start signal. UPS batteries carry the load until they drain.',
     basis: 'Adapted from the NaviSite Silicon Valley outage (DatacenterDynamics): 36 min of UPS before blackout, ~40 min dark. Simulated.',
     horizonMin: 60,
@@ -294,10 +310,18 @@ export const scenarios: Scenario[] = [
       { t: 2, kind: 'fault', assetId: 'UTIL', summary: 'Utility feed lost (voltage sag → 0)' },
       { t: 2, kind: 'alert', assetId: 'ATS-1', summary: 'ATS-1 transfer requested — generator start not acknowledged' },
     ],
+    incidents: [{
+      id: 'INC-2001', title: 'Utility lost — generator start not acknowledged', rootAssetId: 'ATS-1', alertAssetIds: ['UTIL', 'GEN-1', 'ATS-1', 'BATT-A', 'BATT-B'],
+      severity: 'critical', status: 'open', evidence: 'corroborated_abnormal', shiftLeadId: 'emp-priya', openedAt: 2,
+      summary: 'Load is on UPS batteries. The only clock that matters is UPS autonomy; manual generator start is the fastest recovery.',
+      recentChanges: ['ATS-1 last test transfer: 41 days ago'],
+    }],
   },
   {
     id: 'scn-chiller-trip',
+    kind: 'what-if',
     name: 'Chiller trip what-if',
+    headline: 'One chiller trips; in the what-if, the second follows',
     description: 'CH-1 trips on high condenser pressure. Redundancy holds until CH-2 also trips at +12 min in the what-if.',
     basis: 'Engineering what-if; delay ranges are assumptions shown in the Why panel. Simulated.',
     horizonMin: 60,
@@ -305,6 +329,10 @@ export const scenarios: Scenario[] = [
     steps: [
       { t: 1, kind: 'fault', assetId: 'CH-1', summary: 'CH-1 trip — high condenser pressure' },
       { t: 12, kind: 'fault', assetId: 'CH-2', summary: 'What-if: CH-2 trips as well' },
+    ],
+    incidents: [
+      { id: 'INC-3001', title: 'Chiller 1 tripped — running on CH-2 only', rootAssetId: 'CH-1', alertAssetIds: ['CH-1'], severity: 'warning', status: 'open', evidence: 'corroborated_abnormal', shiftLeadId: 'emp-priya', openedAt: 1, summary: 'Redundancy lost on chilled water. No rack impact unless CH-2 also trips.', recentChanges: [] },
+      { id: 'INC-3002', title: 'What-if: Chiller 2 tripped — no chilled water', rootAssetId: 'CH-2', alertAssetIds: ['CH-1', 'CH-2', 'P-1', 'P-2'], severity: 'critical', status: 'open', evidence: 'unverified', shiftLeadId: 'emp-priya', openedAt: 12, summary: 'Scenario preview: thermal ride-through clocks start across the hall.', recentChanges: [] },
     ],
   },
 ];

@@ -32,7 +32,6 @@ function MarkerChip({ asset: a, v, zones, selected, registry, onSelect }: {
 }) {
   const top = assetTop(a, zoneElevation(zones, a.zoneId));
   const sev = v?.severity ?? 'normal';
-  const stale = v?.freshness === 'stale' || v?.freshness === 'missing';
   // critical first, then warning, advisory; selection always on top
   const boost = selected ? 9 : 4 - SEVERITY_PRIORITY[sev] % 4;
   const ref = useAnchor(registry, `m:${a.id}`, [top[0], top[1] + 0.35, top[2]], boost);
@@ -47,28 +46,45 @@ function MarkerChip({ asset: a, v, zones, selected, registry, onSelect }: {
         {sev !== 'normal' && <SeverityGlyph severity={sev} />}
         <span className="twin-marker__id">{a.id}</span>
         <span className="twin-marker__word">
-          {sev !== 'normal' ? SEVERITY_WORD[sev] : a.name.includes(a.id) ? a.type.toUpperCase() : a.name}
+          {v?.lost ? 'Offline' : sev !== 'normal' ? SEVERITY_WORD[sev] : a.name.includes(a.id) ? a.type.toUpperCase() : a.name}
         </span>
-        {v?.clockMin != null && <span className="twin-marker__clock">{fmtClock(v.clockMin)}</span>}
-        {stale && <span className="twin-marker__stale">stale</span>}
+        {v?.lost ? <span className="twin-marker__clock">LOST</span> : v?.clockMin != null && <span className="twin-marker__clock">{fmtClock(v.clockMin)}</span>}
+        {v?.restored && !v.lost && <span className="twin-marker__fixed">fixed</span>}
       </button>
     </div>
   );
 }
 
-/** DOM labels: only abnormal or selected assets get one (no label soup). */
-export function MarkerOverlay({ assets, zones, visual, selectedId, onSelect, registry }: {
+const SEV_SCORE: Record<Severity, number> = { normal: 0, advisory: 1, warning: 2, critical: 3 };
+
+/** Urgency for label ranking: severity first, then least time left; lost assets sink below live clocks. */
+function urgency(v: AssetVisualState): number {
+  const clock = v.clockMin != null ? Math.max(0, 60 - v.clockMin) : 0;
+  return SEV_SCORE[v.severity] * 1000 + clock * 10 - (v.lost ? 500 : 0);
+}
+
+/** DOM labels: only the most urgent few (plus selection / presenter focus) get one — no label soup. */
+export function MarkerOverlay({ assets, zones, visual, selectedId, focusId, onSelect, registry, max = 5 }: {
   assets: Asset[];
   zones: Zone[];
   visual: Record<string, AssetVisualState>;
   selectedId?: string | null;
+  focusId?: string | null;
   onSelect: (id: string) => void;
   registry: AnchorRegistry;
+  max?: number;
 }) {
-  const list = useMemo(() => assets.filter((a) => {
-    const v = visual[a.id];
-    return a.id === selectedId || (v && v.severity !== 'normal' && !v.quiet);
-  }), [assets, visual, selectedId]);
+  const list = useMemo(() => {
+    const ranked = assets
+      .filter((a) => { const v = visual[a.id]; return v && v.severity !== 'normal' && !v.quiet; })
+      .sort((a, b) => urgency(visual[b.id]) - urgency(visual[a.id]) || a.id.localeCompare(b.id))
+      .slice(0, max);
+    for (const id of [selectedId, focusId]) {
+      const a = id ? assets.find((x) => x.id === id) : undefined;
+      if (a && !ranked.includes(a)) ranked.push(a);
+    }
+    return ranked;
+  }, [assets, visual, selectedId, focusId, max]);
 
   return (
     <>
