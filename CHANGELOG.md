@@ -3,6 +3,34 @@
 All changes to CenterGuard, formerly Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
+## 2026-11-08 · Landing page: Evidence section with every prediction chart
+
+- New **Evidence** section on the landing page (nav link "Evidence", between "Why the clock matters" and the final button). It opens with four numbers: 2,048 physics trials per response option, 0 numbers written by Nemotron, under 1 °C error on an independent published restart, and 82 % / 52 % p10–p90 coverage against the model's own and widened priors (target 80 %).
+- All 8 charts from the Prediction Science brief follow, each with a one-line takeaway and the brief's full caption: real failure or bad sensor (Fig. 3), minutes to each limit (Fig. 2), how one forecast is made (Fig. 1), the WP179 backtest (Fig. 6), the CFD consistency check (Fig. 7), INL failure odds (Fig. 4), Dallas–Fort Worth heat (Fig. 5) and interval coverage (Fig. 8).
+- The charts are not redrawn. `scripts/extract-evidence-figures.mjs` copies them from `docs/pdf-src/CenterGuard-Prediction-Science.html` into `src/landing/evidenceFigures.ts`; rerun it after `node docs/pdf-src/build.mjs`.
+- The section states the misses and limits plainly: the 12-minute case was the tuned one, the 4-minute restart is over-predicted, Fig. 7 is a consistency check only, and coverage is measured against simulated outcomes.
+
+✓ typecheck clean · checked in the dev server at desktop and 375 px (8 charts, no sideways scroll) · artifact rebuilt.
+
+## 2026-11-08 · Response simulation plays on the 3D map; verify step follows the evidence
+
+**The evaluation plays on the 3D map**
+- After "Simulate response", the incident replays on the Facility map from "now" to the end of the horizon. Water spreads, failed equipment shows LOST, and the fix shows its recovery when it takes effect. It auto-plays once, without a response first.
+- The bar over the map has play/pause, a **Without / With fix** switch, a scrubber with a marker where the fix lands, the clock (+N min) and **racks down**. Water leak, for example: without a response, UPS-A and all 48 racks are lost at +32 min. With the valves closed at +4 min, the B-side power still fails, but 0 racks go down.
+- The replay is one deterministic run of the incident's own scenario (`src/domain/scenarios/playback.ts`). The alarm's effect is included only when P(real) ≥ 0.5, and low-prior hypotheses are left out. The ensemble stays the source of the probabilities.
+
+**Fewer words in "2. Evaluate a response"**
+- Two numbers: the chance of service impact in the next N min, without and with the fix (from 100 weighted quantile futures, `futures` in `summarizeOption`, never sent to Nemotron). Then **▶ Watch on map**, and "Measure next" when a scan would help.
+- Everything else moved under one **Details** fold: the director's summary, figures, basis, P(real), stress regions and hypotheses. Analyses stored before this change keep their old figures.
+
+**Verify step (the auto-flag)**
+- `stepDone` now ticks "Collect independent sensor evidence" exactly while a conclusive live or simulated scan is attached, so a stored flag can no longer leave it stuck unchecked after a valid scan. A demo reference or an inconclusive scan still does not count.
+- The hint next to it now says why: "demo reference does not count, take a scan" or "inconclusive, repeat the measurement".
+- A scan that arrived while another command was in flight was silently never attached. It is now retried.
+- Still by design: a chiller (heat) incident's verify step can never pass, because the rig cannot measure chilled water.
+
+✓ 307 of 308 tests passing; the one failure is the known load-flaky `audit.test.ts` "random draws", which passes alone · typecheck clean · artifact rebuilt. Checked in the artifact build: water leak, without 51 % / with 13 %; the replay ends at 48 vs 0 racks down.
+
 ## 2026-11-08 · Final cleanup, team responses, flagging fixes, online deploy
 
 - **Front pages:**

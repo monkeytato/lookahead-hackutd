@@ -167,7 +167,7 @@ export function evaluationOutput(s: EvalSessionView): EvaluationOutput | undefin
     kind: ev.request.kind, scenarioId: ev.model.scenario.id, t: ev.model.t,
     pReal: ev.request.pReal, pRealBasis: ev.request.pRealBasis ?? 'evidence posterior (engine)', citeId: ev.digestId!,
     trials: ens.trials, ess: Math.min(...ens.summaries.map((x) => x.ess)),
-    options: ens.summaries.map(lite), withOptionId: k >= 0 ? ens.options[k].id : null,
+    options: ens.summaries.map((x) => ({ ...lite(x), futures: x.futures })), withOptionId: k >= 0 ? ens.options[k].id : null,
     stress: last ? {
       by: last.result.provider, option: last.result.option, rounds: ev.stress.length, trials: last.result.trials, ess: last.result.ess, pFail: last.result.pFail, ci90: last.result.ci90,
       converged: last.result.converged, maxWeight: last.result.maxWeight, regions: last.result.regions.map((r) => ({ ...r, priorOneIn: Number.isFinite(r.priorOneIn) ? r.priorOneIn : 0 })), rejected: last.result.rejected, citeId: last.id,

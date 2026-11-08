@@ -188,6 +188,8 @@ export interface EvaluationOptionLite {
   firstImpactMin: { p10: number | null; p50: number | null; p90: number | null } | null;
   firstEnvelopeMin: { p10: number | null; p50: number | null; p90: number | null } | null;
   expectedUtility: number;
+  /** 100 quantile futures for the UI playback (evaluation output only; never sent to the model) */
+  futures?: { envelope: (number | null)[]; impact: (number | null)[] };
 }
 
 export interface EvaluationOutput {

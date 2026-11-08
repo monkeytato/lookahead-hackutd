@@ -128,7 +128,7 @@ export function createWorkflowHub(d: Deps) {
             // The director normally returns the ensemble; compute it here if it did not (same pure functions).
             const ev = result.evaluation ?? evaluationOutput({ evaluation: createEvaluationState(evaluation), stressRuns: new Map(), numbers: new Map() })!;
             const none = ev.options[0], withOpt = ev.options.find(o => o.id === ev.withOptionId);
-            const side = (o: typeof none) => ({ racksP10: o.racks.p10, racksP50: o.racks.p50, racksP90: o.racks.p90, racksMean: o.racks.mean, pServiceDown: o.pServiceDown, ci90: o.ci90, firstImpactMin: o.firstImpactMin, firstEnvelopeMin: o.firstEnvelopeMin });
+            const side = (o: typeof none) => ({ racksP10: o.racks.p10, racksP50: o.racks.p50, racksP90: o.racks.p90, racksMean: o.racks.mean, pServiceDown: o.pServiceDown, ci90: o.ci90, firstImpactMin: o.firstImpactMin, firstEnvelopeMin: o.firstEnvelopeMin, futures: o.futures });
             const dom = ev.stress ? dominantRegion(ev.stress.regions) : null;
             const comparison = withOpt ? {
               action: withOpt.label, without: none.racks.p50, with: withOpt.racks.p50, saved: none.racks.p50 - withOpt.racks.p50,

@@ -135,5 +135,32 @@
 .mw-ens-regions { margin:6px 0 0; padding:0; list-style:none; display:grid; gap:7px; }
 .mw-ens-regions li { display:grid; gap:2px; font-size:12px; border-top:1px solid var(--mw-line); padding-top:6px; }
 @media(max-width:680px) { .mw-ens.mw-model-compare > div { grid-template-columns:1fr; } }
+/* Evaluation result (EnsembleCompare): two numbers; the story plays on the map. */
+.mw-ens .mw-ens-sides { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:8px 0; }
+.mw-ens-tile { display:grid; gap:2px; align-content:start; background:white; border:1px solid var(--mw-line); border-left:3px solid var(--mw-line); padding:10px 12px; min-width:0; }
+.mw-ens-tile b { font-size:30px; line-height:1.1; font-weight:600; font-variant-numeric:tabular-nums; }
+.mw-ens-tile.is-warn { border-left-color:#a65318; } .mw-ens-tile.is-warn b { color:#8a3b00; }
+.mw-ens-tile.is-alarm { border-left-color:#da1e28; } .mw-ens-tile.is-alarm b { color:#a2191f; }
+.mw-ens-tile .mw-ens-sub { color:var(--mw-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mw-ens-caption { color:var(--mw-muted); }
+.mw-ens-watch { justify-self:start; border:1px solid #102844; background:#102844; color:white; padding:8px 14px; font:inherit; font-weight:600; cursor:pointer; }
+.mw-ens-watch:focus-visible { outline:2px solid #0f62fe; outline-offset:2px; }
+/* Incident replay bar, over the 3D map (IncidentReplay.tsx) */
+.mw-map-canvas { position:relative; }
+.mw-replay { position:absolute; left:12px; right:12px; bottom:12px; display:grid; grid-template-columns:auto auto 1fr auto auto; gap:10px; align-items:center; background:rgba(255,255,255,.94); border:1px solid var(--mw-line); padding:8px 10px; font-size:13px; z-index:2; }
+.mw-replay-play { width:32px; height:32px; border:1px solid var(--mw-line); background:white; color:var(--mw-ink); cursor:pointer; }
+.mw-replay-seg { display:flex; border:1px solid var(--mw-line); }
+.mw-replay-seg button { border:0; background:white; color:var(--mw-ink); padding:6px 10px; font:inherit; cursor:pointer; }
+.mw-replay-seg button.on { background:#102844; color:white; }
+.mw-replay button:focus-visible { outline:2px solid #0f62fe; outline-offset:1px; }
+.mw-replay-track { position:relative; }
+.mw-replay-track input { width:100%; margin:0; accent-color:#102844; }
+.mw-replay-fix { position:absolute; top:-7px; width:8px; height:8px; margin-left:-4px; transform:rotate(45deg); border:1.5px solid #198038; background:white; pointer-events:none; }
+.mw-replay-fix.done { background:#198038; }
+.mw-replay-clock { font-variant-numeric:tabular-nums; font-weight:600; min-width:7ch; text-align:right; }
+.mw-replay-down { color:var(--mw-muted); white-space:nowrap; }
+.mw-replay-down b { font-size:16px; color:var(--mw-ink); font-variant-numeric:tabular-nums; }
+.mw-replay-down.bad b { color:#a2191f; }
+@media(max-width:680px) { .mw-ens .mw-ens-sides { grid-template-columns:1fr; } .mw-replay { grid-template-columns:auto auto 1fr; } .mw-replay-track { grid-column:1 / -1; grid-row:2; } }
 /* A taller section 2 must not stretch the controls of its neighbour in the two-column detail layout. */
 .mw-detail > .mw-section { align-content:start; }

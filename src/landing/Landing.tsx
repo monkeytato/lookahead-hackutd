@@ -1,4 +1,5 @@
 import { Brand } from '../components/Brand';
+import { EVIDENCE_FIGURES } from './evidenceFigures';
 /**
  * CenterGuard landing page. Everything shown is an illustration built from the
  * simulated DAL-1 / Hall A fixture — no customer, uptime, savings or accuracy claims.
@@ -8,6 +9,24 @@ import '../styles/tokens.css';
 import './landing.css';
 
 const DEMO = '#/app';
+
+/* Evidence section: headline numbers and chart order. The charts themselves are generated (evidenceFigures.ts). */
+const EVIDENCE_STATS = [
+  { value: '2,048', label: 'physics trials per response option' },
+  { value: '0', label: 'numbers written by Nemotron' },
+  { value: '< 1 °C', label: 'error on an independent published restart' },
+  { value: '82 % · 52 %', label: 'p10–p90 coverage, own vs widened priors (target 80 %)' },
+];
+const EVIDENCE_ORDER: { n: number; title: string; takeaway: string }[] = [
+  { n: 3, title: 'Real failure, or a bad sensor?', takeaway: 'A portable reading turns an alarm into a probability. Near the baseline points to the sensor; near the alarm confirms a real condition; the middle asks for another scan.' },
+  { n: 2, title: 'Minutes to each temperature limit', takeaway: 'Losing a CRAH pair’s fans is a matter of minutes. Losing the chillers while fans run takes several times longer, because the chilled-water loop holds cold.' },
+  { n: 1, title: 'How one forecast is made', takeaway: 'Nemotron chooses which what-ifs to run and which rack to scan next. The physics engine computes and re-weights every number, and a validator removes any figure it did not produce.' },
+  { n: 6, title: 'Backtest against published outages', takeaway: 'Tuned to Schneider Electric’s 12-minute case. The independent 5-minute restart lands within 1 °C; the 4-minute restart is over-predicted, a known miss.' },
+  { n: 7, title: 'Consistency check: CFD room', takeaway: 'The source’s IT load is illegible, so it was inferred from the curve. A consistency check, not an independent validation.' },
+  { n: 4, title: 'Failure odds from fleet data', takeaway: 'Per-demand failure probabilities from Idaho National Laboratory component reliability data, on a log scale.' },
+  { n: 5, title: 'Texas heat stress', takeaway: 'Hours per year at or above 35 °C and 40 °C in Dallas–Fort Worth. Air-cooled chillers are rated at 35 °C and lose capacity above it.' },
+  { n: 8, title: 'How often the range is right', takeaway: 'Share of simulated losses inside the predicted p10–p90 range: 82 % against the model’s own priors, 52 % against widened priors, versus an 80 % target.' },
+];
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -355,6 +374,7 @@ export function Landing() {
             <Anchor to="workflow">How it works</Anchor>
             <Anchor to="platform">Platform</Anchor>
             <Anchor to="hardware">Hardware</Anchor>
+            <Anchor to="evidence">Evidence</Anchor>
           </nav>
           <a className="lp-btn lp-btn-primary lp-header-cta" href={DEMO}>Open demo</a>
         </div>
@@ -552,7 +572,44 @@ export function Landing() {
           </div>
         </section>
 
-        {/* 7. Final CTA */}
+        {/* 7. Evidence: every chart from the Prediction Science brief */}
+        <section id="evidence" className="lp-section" aria-labelledby="lp-evidence-h" tabIndex={-1}>
+          <div className="lp-wrap">
+            <h2 id="lp-evidence-h" className="lp-h2">The numbers behind every forecast.</h2>
+            <p className="lp-body lp-measure">
+              Every chart below comes straight from our Prediction Science brief, built from the engine code, published
+              outage data and our validation reports. Where the model misses or rests on an assumption, the chart says so.
+            </p>
+            <dl className="lp-ev-stats">
+              {EVIDENCE_STATS.map((s) => (
+                <div key={s.label}>
+                  <dt>{s.label}</dt>
+                  <dd className="lp-mono">{s.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="lp-ev-grid">
+              {EVIDENCE_ORDER.map(({ n, title, takeaway }) => {
+                const fig = EVIDENCE_FIGURES.find((f) => f.n === n)!;
+                return (
+                  <figure key={n} className={`lp-ev-card${n === 1 ? ' lp-ev-tall' : ''}`}>
+                    <div className="lp-ev-head">
+                      <h3 className="lp-h3">{title}</h3>
+                    </div>
+                    <p className="lp-body">{takeaway}</p>
+                    <div className="lp-ev-chart" dangerouslySetInnerHTML={{ __html: fig.svg }} />
+                  </figure>
+                );
+              })}
+            </div>
+            <p className="lp-framing">
+              Coverage is measured against simulated outcomes, because we had no real facility incident data. That is why
+              every range in the product is labeled “model range.”
+            </p>
+          </div>
+        </section>
+
+        {/* 8. Final CTA */}
         <section className="lp-cta" aria-labelledby="lp-cta-h">
           <div className="lp-wrap lp-cta-in">
             <h2 id="lp-cta-h" className="lp-h2 lp-on-inverse">Run the night-shift scenario.</h2>

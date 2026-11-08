@@ -105,6 +105,12 @@ export interface OptionSummary {
   perRack: Record<ID, { pImpact: number; p50Min: number | null }>;
   /** expected utility (rack-equivalents, negative) and its parts */
   expectedUtility: number;
+  /**
+   * 100 representative futures for playback: the weighted 0.5 %, 1.5 %, … 99.5 % quantiles of the
+   * minutes from now to the 32 °C envelope and to service impact (null = not within the horizon),
+   * ascending. Marginal quantiles paired by rank (a quantile dotplot), not individual trials.
+   */
+  futures: { envelope: (number | null)[]; impact: (number | null)[] };
 }
 
 export interface OptionOutcome {
@@ -557,6 +563,22 @@ function q3(vals: ArrayLike<number>, w: ArrayLike<number>, now: number): Quantil
   return out.p10 === null ? null : out;
 }
 
+/** Weighted quantiles at (i + 0.5) / n, i = 0…n−1, in minutes from now (null past the horizon). One sort. */
+export function quantileGrid(values: ArrayLike<number>, weights: ArrayLike<number>, now: number, n = 100): (number | null)[] {
+  const idx = Array.from({ length: values.length }, (_, i) => i).sort((a, b) => values[a] - values[b]);
+  let tot = 0;
+  for (let i = 0; i < values.length; i++) tot += weights[i];
+  const out: (number | null)[] = [];
+  let acc = 0, j = 0;
+  for (let q = 0; q < n; q++) {
+    const target = ((q + 0.5) / n) * tot;
+    while (j < idx.length - 1 && acc + weights[idx[j]] < target) acc += weights[idx[j++]];
+    const v = idx.length ? values[idx[j]] : Infinity;
+    out.push(Number.isFinite(v) ? r1(Math.max(0, v - now)) : null);
+  }
+  return out;
+}
+
 export function summarizeOption(ens: Ensemble, k: number): OptionSummary {
   const out = ens.outcomes[k];
   const w = trialWeights(ens);
@@ -578,6 +600,7 @@ export function summarizeOption(ens: Ensemble, k: number): OptionSummary {
     racks, pServiceDown: fd.mean, ci90: fd.ci90,
     firstImpactMin: q3(out.firstImpact, w, ens.t), firstEnvelopeMin: q3(out.firstEnvelope, w, ens.t),
     perRack, expectedUtility: weightedMean(ens, out.U).mean,
+    futures: { envelope: quantileGrid(out.firstEnvelope, w, ens.t), impact: quantileGrid(out.firstImpact, w, ens.t) },
   };
 }
 

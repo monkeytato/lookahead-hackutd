@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { changeWork, emptyWork, hasIndependentEvidence, reviewWork, stepDone, uncheckedSteps, type Evidence, type WorkCommand, type WorkState } from '../../src/domain/workflow';
+import { changeWork, emptyWork, hasConclusiveEvidence, hasIndependentEvidence, reviewWork, stepDone, uncheckedSteps, type Evidence, type WorkCommand, type WorkState } from '../../src/domain/workflow';
 import { facility } from '../../src/domain/fixture';
 import { createWorkflowHub } from '../../server/workflowHub';
 import type { Scan } from '../../src/domain/rig/protocol';
@@ -25,14 +25,25 @@ describe('incomplete-submission flags: one rule for every path', () => {
     return { d, id };
   }
 
-  it('flags a close verified only by the scripted fixture reference (no measurement was taken)', () => {
+  it('counts the labelled demo reference as verified (team decision 2026-11-08)', () => {
     const { d, id } = ready();
     d.send({ type: 'verify_fixture', issueId: id });
     const open = d.state.issues[0], verify = open.steps.find(s => s.id === 'verify')!;
-    expect(verify.done).toBe(true); // stored as before, so older clients still decode it
+    expect(open.evidence?.source).toBe('fixture'); // still labelled as a scripted reference, not a measurement
     expect(hasIndependentEvidence(open)).toBe(false);
-    expect(stepDone(open, verify)).toBe(false);
-    expect(uncheckedSteps(open)).toEqual(['Collect independent sensor evidence']);
+    expect(hasConclusiveEvidence(open)).toBe(true);
+    expect(stepDone(open, verify)).toBe(true);
+    expect(uncheckedSteps(open)).toEqual([]);
+    expect(reviewWork(d.state).some(g => /checklist/.test(g))).toBe(false);
+    d.send({ type: 'resolve', issueId: id, note: 'Floor dry on arrival, riser joint tightened.' });
+    expect(d.state.issues[0].status).toBe('resolved');
+    expect(d.state.issues[0].incomplete).toBeUndefined();
+    expect(d.state.events.at(-1)?.flag).toBeUndefined();
+  });
+
+  it('flags a close with no evidence attached', () => {
+    const { d, id } = ready();
+    expect(uncheckedSteps(d.state.issues[0])).toEqual(['Collect independent sensor evidence']);
     expect(reviewWork(d.state)).toContain('PIPE-L2: checklist is incomplete.');
     d.send({ type: 'resolve', issueId: id, note: 'Floor dry on arrival, riser joint tightened.' });
     expect(d.state.issues[0].status).toBe('resolved'); // still allowed, only flagged
@@ -42,13 +53,13 @@ describe('incomplete-submission flags: one rule for every path', () => {
     expect(reviewWork(d.state)).toEqual(['PIPE-L2: closed with 1 unchecked step: Collect independent sensor evidence.']);
   });
 
-  it('flags a fixture that replaced an earlier conclusive scan', () => {
+  it('a demo reference that replaced an earlier conclusive scan still counts', () => {
     const { d, id } = ready();
     d.send({ type: 'evidence', issueId: id, evidence: reading('confirmed') });
     expect(uncheckedSteps(d.state.issues[0])).toEqual([]);
     d.send({ type: 'verify_fixture', issueId: id });
     d.send({ type: 'resolve', issueId: id, note: 'Closed after the demo reference reading.' });
-    expect(d.state.issues[0].incomplete).toEqual(['Collect independent sensor evidence']);
+    expect(d.state.issues[0].incomplete).toBeUndefined();
   });
 
   it('completes with a conclusive live or simulated scan, confirming or disagreeing', () => {
@@ -71,11 +82,50 @@ describe('incomplete-submission flags: one rule for every path', () => {
     expect(d.state.issues[0].incomplete).toEqual(['Collect independent sensor evidence', 'Recheck equipment and record outcome']);
   });
 
-  it('flags stored sessions whose fixture verification predates this rule', () => {
+  it('counts stored sessions verified by the demo reference, whatever their stored flag', () => {
     const { d, id } = ready();
     const stored = JSON.parse(JSON.stringify(d.send({ type: 'verify_fixture', issueId: id }))) as WorkState;
+    stored.issues[0].steps.find(s => s.id === 'verify')!.done = false;
     const next = changeWork(stored, { type: 'resolve', issueId: id, note: 'Closed from an older saved session.' }, 'Test', new Date().toISOString(), 'x-2');
-    expect(next.issues[0].incomplete).toEqual(['Collect independent sensor evidence']);
+    expect(next.issues[0].incomplete).toBeUndefined();
+  });
+
+  it('ticks the verify step automatically once a conclusive scan is attached through the bridge hub', async () => {
+    const scans: Scan[] = []; const h = hub(scans);
+    await h.command({ type: 'simulate_error', kind: 'sensor' }); const id = h.snapshot().issues[0].id;
+    const verifyOf = () => { const i = h.snapshot().issues[0]; return { i, step: i.steps.find(s => s.id === 'verify')! }; };
+    expect(stepDone(verifyOf().i, verifyOf().step)).toBe(false);
+    expect(uncheckedSteps(verifyOf().i)).toContain('Collect independent sensor evidence');
+    scans.push(scan('A-11')); // live portable reference 22 °C vs installed 34.2 °C: a conclusive disagreement
+    await h.command({ type: 'verify_scan', issueId: id, scanId: 'SCAN-1' });
+    const { i, step } = verifyOf();
+    expect(i.evidence).toMatchObject({ source: 'live', verdict: 'disagrees' });
+    expect(stepDone(i, step)).toBe(true);
+    expect(uncheckedSteps(i)).not.toContain('Collect independent sensor evidence');
+    expect(reviewWork(h.snapshot()).some(g => /checklist/.test(g))).toBe(true); // the other three steps are still open
+  });
+
+  it('verify follows the current evidence, not a stale stored flag', () => {
+    const { d, id } = ready();
+    const verifyDone = () => { const i = d.state.issues[0]; return stepDone(i, i.steps.find(s => s.id === 'verify')!); };
+    d.send({ type: 'evidence', issueId: id, evidence: reading('confirmed', 'simulated') });
+    expect(verifyDone()).toBe(true);
+    expect(uncheckedSteps(d.state.issues[0])).toEqual([]);
+    // A saved session whose stored flag was never set still counts a conclusive scan as done.
+    const stale = structuredClone(d.state); stale.issues[0].steps.find(s => s.id === 'verify')!.done = false;
+    expect(uncheckedSteps(stale.issues[0])).toEqual([]);
+    expect(changeWork(stale, { type: 'resolve', issueId: id, note: 'Closed from an older saved session.' }, 'Test', new Date().toISOString(), 'x-3').issues[0].incomplete).toBeUndefined();
+    // A later inconclusive scan unticks it; the demo reference ticks it again; an inconclusive scan unticks it.
+    d.send({ type: 'evidence', issueId: id, evidence: reading('inconclusive', 'live') });
+    expect(verifyDone()).toBe(false);
+    expect(uncheckedSteps(d.state.issues[0])).toEqual(['Collect independent sensor evidence']);
+    d.send({ type: 'verify_fixture', issueId: id });
+    expect(verifyDone()).toBe(true);
+    expect(uncheckedSteps(d.state.issues[0])).toEqual([]);
+    d.send({ type: 'evidence', issueId: id, evidence: reading('inconclusive', 'live') });
+    expect(verifyDone()).toBe(false);
+    d.send({ type: 'evidence', issueId: id, evidence: reading('disagrees', 'live') });
+    expect(verifyDone()).toBe(true);
   });
 
   it('the bridge hub flags the same submission the reducer does', async () => {
@@ -84,8 +134,9 @@ describe('incomplete-submission flags: one rule for every path', () => {
     await h.command({ type: 'assign', issueId: id, employeeId: 'emp-jordan' });
     await h.command({ type: 'verify_fixture', issueId: id });
     for (const stepId of ['locate', 'act', 'recheck']) await h.command({ type: 'check', issueId: id, stepId, done: true });
+    await h.command({ type: 'check', issueId: id, stepId: 'recheck', done: false });
     await h.command({ type: 'resolve', issueId: id, note: 'Closed with the demo reference only.' });
-    expect(h.snapshot().issues[0].incomplete).toEqual(['Collect independent sensor evidence']);
+    expect(h.snapshot().issues[0].incomplete).toEqual(['Recheck equipment and record outcome']); // the demo reference counts; the open recheck does not
     expect(h.snapshot().events.at(-1)?.flag).toBe('incomplete');
   });
 });
@@ -176,7 +227,7 @@ describe('static artifact bridge mirrors the laptop bridge', () => {
   });
   afterAll(() => { vi.unstubAllGlobals(); });
 
-  it('creates a response and flags a fixture-only submission exactly as the server hub does', async () => {
+  it('creates a response and flags an incomplete submission exactly as the server hub does', async () => {
     // Path in a variable: the test tsconfig has no DOM lib, so the browser module is loaded at runtime only.
     const modulePath = '../../src/state/localBridge';
     const { createLocalBridge } = await import(/* @vite-ignore */ modulePath) as { createLocalBridge(): { request(method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }> } };
@@ -195,7 +246,7 @@ describe('static artifact bridge mirrors the laptop bridge', () => {
       await server.command({ type: cmd, issueId: serverId, ...ids });
     }
     const a = ((await local.request('GET', '/api/workflow')).body as WorkState), b = server.snapshot();
-    expect(a.issues[0].incomplete).toEqual(['Collect independent sensor evidence', 'Record inspection or response performed', 'Recheck equipment and record outcome']);
+    expect(a.issues[0].incomplete).toEqual(['Record inspection or response performed', 'Recheck equipment and record outcome']);
     expect(a.issues[0].incomplete).toEqual(b.issues[0].incomplete);
     expect(a.events.map(e => [e.kind, e.flag, e.source])).toEqual(b.events.map(e => [e.kind, e.flag, e.source]));
   });

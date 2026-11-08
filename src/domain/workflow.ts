@@ -26,6 +26,8 @@ export interface EnsembleSide {
   firstImpactMin: { p10: number | null; p50: number | null; p90: number | null } | null;
   /** out-of-envelope clock: inlet ≥ 32 °C (ASHRAE A1 allowable) */
   firstEnvelopeMin: { p10: number | null; p50: number | null; p90: number | null } | null;
+  /** 100 quantile futures (minutes from now to the envelope / service impact; null = not within the horizon). Absent on older analyses. */
+  futures?: { envelope: (number | null)[]; impact: (number | null)[] };
 }
 /** Optional ensemble detail on WorkAnalysis.comparison (PREDICTION-SCIENCE.md §6 Step 6). Absent on older analyses. */
 export interface EnsembleComparison {
@@ -76,9 +78,18 @@ export type WorkCommand =
 export function hasIndependentEvidence(i: WorkIssue): boolean {
   return !!i.evidence && i.evidence.verdict !== 'inconclusive' && i.evidence.source !== 'fixture';
 }
-/** Whether a checklist step counts as done. `verify` counts only with independent evidence attached. */
+/** Conclusive evidence of any source: a live or simulated scan, or the labelled demo reference. */
+export function hasConclusiveEvidence(i: WorkIssue): boolean {
+  return !!i.evidence && i.evidence.verdict !== 'inconclusive';
+}
+/**
+ * Whether a checklist step counts as done. `verify` is not operator-tickable: it follows the attached
+ * evidence alone — done exactly while conclusive evidence is attached, including the labelled demo
+ * reference (team decision 2026-11-08, so a walkthrough without hardware can close cleanly) — and
+ * unchecked with no evidence or an inconclusive scan.
+ */
 export function stepDone(i: WorkIssue, step: WorkIssue['steps'][number]): boolean {
-  return step.done && (step.id !== 'verify' || hasIndependentEvidence(i));
+  return step.id === 'verify' ? hasConclusiveEvidence(i) : step.done;
 }
 /** Steps that would be left unchecked if the issue were closed now: the one rule the reducer, handoff review and every view use. */
 export function uncheckedSteps(i: WorkIssue): string[] {
