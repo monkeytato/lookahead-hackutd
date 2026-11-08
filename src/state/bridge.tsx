@@ -93,14 +93,14 @@ export function useFrameAge(latest: StampedFrame | null): number | null {
   return useMemo(() => (latest ? Math.max(0, (now - Date.parse(latest.at)) / 1000) : null), [latest, now]);
 }
 
-export async function api<T>(path: string, body?: unknown): Promise<T> {
+export async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   if (LOCAL_BRIDGE) {
     const r = await getLocalBridge().request(body === undefined ? 'GET' : 'POST', path, body);
     const d = r.body as { error?: string; reply?: string };
     if (r.status >= 400) throw new Error(d.error ?? d.reply ?? `HTTP ${r.status}`);
     return r.body as T;
   }
-  const r = await fetch(path, body === undefined ? undefined : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(path, body === undefined ? { signal } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((data as { error?: string; reply?: string }).error ?? (data as { reply?: string }).reply ?? `HTTP ${r.status}`);
   return data as T;

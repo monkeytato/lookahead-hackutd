@@ -8,6 +8,7 @@
  */
 import type { Metric, Reading, Threshold, Verdict } from '../types';
 import { freshness, severityFor } from './readings';
+import { evidencePosterior, type ErrorModel, type EvidencePosterior } from './evidence';
 
 export interface CompareContext { now: number; thresholds: Threshold[] }
 export interface CompareResult { verdict: Verdict; rationale: string; qualityFlags: string[] }
@@ -100,4 +101,19 @@ export function compareReadings(installed: Reading, references: Reading[], ctx: 
     rationale: `Not corroborated in this session: ${instDesc} and ${refDesc}; both are within band at the time and point measured. This covers only this measurement point and time.`,
     qualityFlags: flags,
   };
+}
+
+/**
+ * Bayesian verdict (PREDICTION-SCIENCE.md §2.6): the same CompareResult shape as compareReadings plus
+ * P(real). The installed reading IS compared with the portable one, against an explicit error budget,
+ * and a quantity the portable rig cannot measure is refused (`inconclusive`, "not measurable").
+ */
+export function compareWithPosterior(
+  installed: Reading,
+  reference: { mean: number; n: number; sd?: number; slopePerMin?: number; quality?: string[] } | null,
+  baseline: { mean: number; sd?: number; neighbours?: number[] },
+  opts: { priorReal?: number; errorModel?: Partial<ErrorModel> } = {},
+): CompareResult & { pReal: number; measurable: boolean; posterior: EvidencePosterior } {
+  const posterior = evidencePosterior({ metric: installed.metric, installed: { value: installed.value }, reference, neighbours: baseline.neighbours, modelBaseline: baseline, priorReal: opts.priorReal, errorModel: opts.errorModel });
+  return { verdict: posterior.verdict, rationale: posterior.rationale, qualityFlags: posterior.qualityFlags, pReal: posterior.pReal, measurable: posterior.measurable, posterior };
 }

@@ -257,7 +257,7 @@ function HoldToScan(props: { disabled: boolean; disabledReason: string; assetId:
 }
 
 const CH_LABEL: Record<ScanChannel, string> = {
-  inlet_top_c: 'Inlet top', inlet_bottom_c: 'Inlet bottom', outlet_c: 'Outlet', ref_c: 'Reference', delta_t_c: 'ΔT', reservoir_pct: 'Reservoir', floor_wet: 'Floor wet', pack_v: 'Rack power',
+  inlet_top_c: 'Inlet top', inlet_bottom_c: 'Inlet bottom', outlet_c: 'Outlet', ref_c: 'Reference', delta_t_c: 'ΔT', reservoir_pct: 'Reservoir', floor_wet: 'Floor wet', pack_v: 'Rack power', vibration_detected: 'Vibration detected',
 };
 
 function ScanResult({ scan, focus }: { scan: Scan; focus: ScanChannel[] }) {

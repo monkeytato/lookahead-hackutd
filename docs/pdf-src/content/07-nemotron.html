@@ -1,0 +1,75 @@
+<section class="chapter flow" id="s4">
+  <div class="kicker">Section 4</div>
+  <h1>How Nemotron is used, and why it cannot bias the numbers</h1>
+  <p class="lead">Nemotron (<code>nvidia/nemotron-3.5-lightning-30b-a3b</code>) works as a red team. It proposes compound failures that might break the chosen response, and the engine tests them. It never produces a reported number. Its proposals change which trials are drawn; importance weights then correct for that choice, so a bad idea costs precision, never correctness.</p>
+
+  <h2>The loop</h2>
+  <ol>
+    <li><b>Round 0</b> (<code>stress_digest</code>, cited as <code>stress-1</code>). The ensemble runs every response option (2,048 trials each) and builds a <i>failure digest</i>: the families over-represented among failing trials (lift = P(top or bottom decile | fail) / 0.1; for Bernoulli families P(fails | fail) / P(fails)), the ESS and the estimate.</li>
+    <li><b>Proposals</b> (<code>stress_test</code>): up to 6 regions, each a label, a rationale and up to 6 terms. <code>validateProposal</code> checks every term against the grammar and the family list; invalid terms go back to the model with a reason.</li>
+    <li><b>Re-weighted sampling.</b> The engine draws 4,096 trials (512 × 8) from the defensive mixture and attributes the failure probability to the regions.</li>
+    <li><b>At most two stress rounds</b>, then a recommendation that passes the text validator. Without Nemotron (no key, or the static artifact) the cross-entropy method proposes the regions, with the same output schema.</li>
+  </ol>
+
+  <h2>The closed grammar</h2>
+  <table>
+    <thead><tr><th style="width: 20%">Operation</th><th style="width: 30%">Allowed on</th><th>Constraint</th></tr></thead>
+    <tbody>
+      <tr><td><code>quantile_window</code></td><td>continuous families</td><td>0 ≤ lo &lt; hi ≤ 1 and width ≥ 0.01: sample the family only from that slice of its prior's quantiles</td></tr>
+      <tr><td><code>force</code></td><td>Bernoulli families</td><td>value 1 ("fail") or 0 ("ok")</td></tr>
+      <tr><td><code>set_p</code></td><td>Bernoulli families</td><td>0 &lt; p ≤ 0.5</td></tr>
+      <tr><td><code>scale</code></td><td>log-scale families (lognormal, log-uniform)</td><td>f ∈ [1/4, 4]</td></tr>
+    </tbody>
+  </table>
+  <p>Families are the engine's own (for example <code>gen_fts</code>, <code>chiller_restart_min</code>, <code>battery_soh_B</code>, <code>k_G</code>, <code>crew_mult</code>, <code>h:real</code>). A family may appear once per region. Anything else (an unknown family, a window on a Bernoulli, set_p above 0.5, a seventh term) is rejected. Every allowed operation has a closed-form density, which is what makes exact re-weighting possible.</p>
+
+  <h2>Why the estimate stays honest</h2>
+  <div class="eq">
+    <span class="row"><i>q</i>(θ) = α · <i>b</i>(θ) + (1 − α) · (1/<i>K</i>) Σ<sub><i>k</i></sub> <i>q</i><sub><i>k</i></sub>(θ), &nbsp;&nbsp; <b>α = 0.3</b></span>
+    <span class="row"><i>w</i>(θ) = <i>p</i>(θ) / <i>q</i>(θ) = [<i>p</i>(θ)/<i>b</i>(θ)] · [<i>b</i>(θ)/<i>q</i>(θ)], &nbsp;&nbsp; <i>b</i>/<i>q</i> = 1 / (α + (1 − α)·mean<sub><i>k</i></sub> <i>q</i><sub><i>k</i></sub>/<i>b</i>) ≤ 1/α ≈ 3.3</span>
+    <span class="row"><i>P</i><sub>est</sub>(<i>F</i>) = Σ <i>w F</i> / Σ <i>w</i> &nbsp;&nbsp; (self-normalised; consistent for any valid <i>q</i><sub><i>k</i></sub>)</span>
+    <span class="note">b = the base sampler (the prior, with hypotheses stratified at 0.5); q<sub>k</sub> = region k's proposal. <code>stress.ts</code>, <code>ensemble.ts</code>.</span>
+  </div>
+  <ul>
+    <li><b>Defensive mixture.</b> 30 % of draws always come from the base sampler, so every part of the prior keeps being sampled, whatever Nemotron proposes.</li>
+    <li><b>Weight cap.</b> Relative to the base sampler, no trial can weigh more than 1/α ≈ 3.3. By Hesterberg (1995), a useless proposal therefore costs at most about a 3.3-fold increase in variance over plain Monte Carlo; a good one cuts the variance of a rare-failure estimate. <code>stressTest</code> reports the largest weight seen so the bound is checked, not assumed.</li>
+    <li><b>Attribution by the engine.</b> For each region the engine computes its prior mass ("about 1 in N incidents"), P(failure | region) and its share of the total failure probability. Nemotron reads these; it does not compute them.</li>
+    <li><b>Stop rule.</b> A stress result is marked converged when ESS &gt; 2,000 and the 90 % half-width is below 25 % of <i>P</i><sub>est</sub>.</li>
+  </ul>
+  <p><b>Tested.</b> <code>tests/engine/stress.test.ts</code> checks that weights stay within 1/α of the base sampler, that a generator or ATS failure is recovered within 3 standard errors by importance sampling with N = 8,000, and that random valid proposals average to the true value (no bias).</p>
+</section>
+
+<section class="chapter cont">
+  <h2>The text validator: Nemotron's prose cannot carry a new number</h2>
+  <p><code>server/director/validate.ts</code> runs on every recommendation. Each engine run's numbers are registered under its run id (<code>run-N</code>, <code>stress-N</code>), in raw, rounded and percent forms. The validator then scans the summary, next action, next-scan reason and every hypothesis:</p>
+  <table>
+    <thead><tr><th style="width: 26%">Check</th><th>Rule</th></tr></thead>
+    <tbody>
+      <tr><td>Clocks</td><td>"T−14", "T+44", "14 min", "12–20 min" must match a cited run's number within ±1 (rounding), or a number quoted from the inputs</td></tr>
+      <tr><td>Percentages</td><td>"3.2 %" must match within max(0.15, 5 %) of a cited or observed value</td></tr>
+      <tr><td>Counts and odds</td><td>"12 racks", "2 services" must match exactly; "1 in 400" within max(1, 5 %)</td></tr>
+      <tr><td>Run ids</td><td>Unknown run ids are removed and reported</td></tr>
+      <tr><td>Direction</td><td>"later", "more time" or "buys" next to a cited shift whose sign is negative (or the reverse) is replaced by the engine's own templated sentence</td></tr>
+      <tr><td>Provenance</td><td>Claims that a rig is trustworthy, a sensor is broken or faulty, or equipment is safe are removed</td></tr>
+    </tbody>
+  </table>
+  <p>Anything that fails becomes <code>[unsupported]</code> and is logged as a warning. The director also has a 30 s wall-clock cap and falls back to the local planner.</p>
+
+  <h2>What happened in the live runs</h2>
+  <table>
+    <thead><tr><th>Evaluation</th><th class="n">Wall time</th><th class="n">Requests</th><th class="n">Prompt tokens</th><th>Outcome</th></tr></thead>
+    <tbody>
+      <tr><td>Heat (CH-1), P(real) 0.5</td><td class="n">16.0 s</td><td class="n">12</td><td class="n">86k</td><td>2 regions proposed (chiller restart failure via set_p; generator fail-to-start); 0 validator warnings</td></tr>
+      <tr><td>Water (PIPE-L2), P(real) 0.98</td><td class="n">18.4 s</td><td class="n">12</td><td class="n">93k</td><td>5 proposals rejected by the grammar (force on a continuous family; a 0–30 window) before 2 valid rounds</td></tr>
+    </tbody>
+  </table>
+  <p class="small">The rejections are the grammar working as designed: invalid proposals never reached the sampler. After this run the digest and prompt were changed to list families by type and ask for narrow tails. Whether Nemotron's regions reduce variance more than the cross-entropy fallback at equal trial counts is <b>not measured</b> yet; until it is, the honest claim is that Nemotron matches the fallback's role and explains the failure modes in operator language.</p>
+
+  <h2>Choosing the next scan: expected value of sample information</h2>
+  <p>The scan suggestion used to come from an ad-hoc score. It now comes from a preposterior decision analysis (Raiffa and Schlaifer 1961), computed from the ensemble's own trials with no new simulation:</p>
+  <div class="eq">
+    <span class="row">EVSI(<i>s</i>) = Σ<sub><i>y</i></sub> max<sub><i>a</i></sub> Σ<sub><i>i</i></sub> <i>w</i><sub><i>i</i></sub> <i>L</i><sub><i>y</i></sub>(<i>i</i>) <i>U</i><sub><i>a</i></sub>(<i>i</i>) / Σ<i>w</i> &nbsp;−&nbsp; max<sub><i>a</i></sub> Σ<sub><i>i</i></sub> <i>w</i><sub><i>i</i></sub> <i>U</i><sub><i>a</i></sub>(<i>i</i>) / Σ<i>w</i></span>
+    <span class="note">L<sub>y</sub>(i) = probability of scan outcome y in trial i: a floor probe reads wet with sensitivity 0.95 where that trial's water has arrived, else with 1 − specificity; an inlet probe reads near the installed value where the hot spot is real, else near the baseline (Student-t budget of §3.2, five bins). U as in §3.5. Units: rack-equivalents. <code>evsi.ts</code>.</span>
+  </div>
+  <p>EVSI is never negative and is exactly zero when no outcome would change the best action. Only scans the rig can physically make are candidates. Tests check that the A-11 inlet scan ranks first for the A-11 alarm, that a floor scan outranks an inlet scan for the riser leak, and that EVSI matches a brute-force two-hypothesis calculation on a toy ensemble (0.265). <b>An honest finding:</b> at the riser leak at T+12, isolating the valve is the best action whatever a single floor point reads, so every EVSI is 0. The ranking then falls back to how far the reading would move P(service down) (<code>forecastShift</code>), and the UI says so.</p>
+</section>

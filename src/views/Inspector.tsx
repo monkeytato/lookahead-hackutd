@@ -3,27 +3,31 @@ import { facility, referenceFixtures, runbooks, changeLog } from '../domain/fixt
 import { compareReadings, findRoute, suggestAssignees, transition } from '../domain/engine';
 import type { ImpactClock, Incident, PriorityResult, Reading, Task, VerificationSession } from '../domain/types';
 import { makeEvent, relMin, useOps, wallClock, type Selection } from '../state/store';
-import { assetById, checkinState, clocksForIncident, latestFor, METRIC_LABEL, ROLE_LABEL, serviceById, waypointById, zoneById } from '../state/selectors';
+import { assetById, checkinState, clocksForIncident, honestVisual, latestFor, METRIC_LABEL, ROLE_LABEL, serviceById, waypointById, zoneById } from '../state/selectors';
 import { BarBand, Btn, Countdown, EvidenceTag, FreshTag, Section, SevMark, Src, verdictLabel } from '../components/primitives';
 import { analyzeIncident } from './analysis';
 import { DirectorPanel } from './DirectorPanel';
 import { FixPanel } from './FixPanel';
 import { api, useBridge } from '../state/bridge';
 
-interface Props { sel: Selection; setSel: (s: Selection) => void; clocks: ImpactClock[]; ranked: PriorityResult[] }
+interface Props {
+  sel: Selection; setSel: (s: Selection) => void; clocks: ImpactClock[]; ranked: PriorityResult[];
+  /** Inside the detail panel: skip what it already shows (title, summary, fix, clock) */ brief?: boolean;
+  /** Hide only the "Fix this" section */ hideFix?: boolean;
+}
 
-export function Inspector({ sel, setSel, clocks, ranked }: Props) {
+export function Inspector({ sel, setSel, clocks, ranked, brief, hideFix }: Props) {
   if (!sel) return <div className="insp-empty">Select an incident, asset, person or task.</div>;
-  if (sel.kind === 'incident') return <IncidentPanel id={sel.id} setSel={setSel} clocks={clocks} ranked={ranked} />;
-  if (sel.kind === 'asset') return <AssetPanel id={sel.id} setSel={setSel} />;
+  if (sel.kind === 'incident') return <IncidentPanel id={sel.id} setSel={setSel} clocks={clocks} ranked={ranked} brief={brief} hideFix={hideFix} />;
+  if (sel.kind === 'asset') return <AssetPanel id={sel.id} setSel={setSel} brief={brief} />;
   if (sel.kind === 'task') return <TaskPanel id={sel.id} setSel={setSel} />;
   return <EmployeePanel id={sel.id} setSel={setSel} />;
 }
 
 // ------------------------------------------------------------------ incident
 
-function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Props['setSel']; clocks: ImpactClock[]; ranked: PriorityResult[] }) {
-  const { state, dispatch, run } = useOps();
+function IncidentPanel({ id, setSel, clocks, ranked, brief, hideFix }: { id: string; setSel: Props['setSel']; clocks: ImpactClock[]; ranked: PriorityResult[]; brief?: boolean; hideFix?: boolean }) {
+  const { state, dispatch, run, forecast } = useOps();
   const t = state.t;
   const inc = state.incidents.find((i) => i.id === id);
   const pr = ranked.find((r) => r.incidentId === id);
@@ -60,7 +64,7 @@ function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Pro
 
   return (
     <div className="insp">
-      <header className="insp-h insp-h-inverse">
+      {!brief && <header className="insp-h insp-h-inverse">
         <div className="insp-kicker mono">{inc.id} · opened {wallClock(inc.openedAt)} · {Math.max(0, Math.round(t - inc.openedAt))} min</div>
         <h2><SevMark sev={inc.severity} label /> {inc.title}</h2>
         <div className="insp-tags">
@@ -68,18 +72,19 @@ function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Pro
           <span className="tag">{inc.status}</span>
           <span className="insp-owner">Owner: {owner?.name ?? 'unassigned'} · Lead: {lead?.name}</span>
         </div>
-      </header>
+      </header>}
 
       <p className="insp-summary">{inc.summary}</p>
+      {brief && <div className="insp-tags insp-pad"><EvidenceTag v={inc.evidence} /><span className="tag">{inc.status}</span><span className="insp-owner">Owner: {owner?.name ?? 'unassigned'} · Lead: {lead?.name}</span></div>}
 
-      {inc.status !== 'resolved' && (
+      {!brief && !hideFix && inc.status !== 'resolved' && (
         <Section title="Fix this" className="sec-fix" aside={<span className="pane-sub">what each action saves</span>}>
           <FixPanel assetIds={[inc.rootAssetId, ...inc.alertAssetIds]} />
         </Section>
       )}
 
       {critical.length > 0 && (
-        <Section title="How long do we have" aside={<span className="pane-sub">Monte Carlo · 400 runs · ranges</span>}>
+        <Section title="How long do we have" aside={<span className="pane-sub">forecast from observed faults · 400 runs · ranges</span>}>
           <div className="clock-list">
             {critical.map((c) => (
               <button key={c.assetId} className="clock-row" onClick={() => setSel({ kind: 'asset', id: c.assetId })}>
@@ -96,7 +101,7 @@ function IncidentPanel({ id, setSel, clocks, ranked }: { id: string; setSel: Pro
           <ol className="chain">
             {why.path.map((aid, i) => {
               const next = why.path[i + 1];
-              const edge = next ? [...facility.edges, ...run.derivedEdges].find((e) => e.from === aid && e.to === next) : undefined;
+              const edge = next ? [...facility.edges, ...forecast.derivedEdges].find((e) => e.from === aid && e.to === next) : undefined;
               return (
                 <li key={aid + i}>
                   <button className="chain-node" onClick={() => setSel({ kind: 'asset', id: aid })}><span className="mono">{aid}</span> {assetById.get(aid)?.name}</button>
@@ -277,13 +282,15 @@ function AnalysisBlock({ incident, readings, sessions, clocks }: { incident: Inc
 
 // --------------------------------------------------------------------- asset
 
-function AssetPanel({ id, setSel }: { id: string; setSel: Props['setSel'] }) {
-  const { state, run } = useOps();
+function AssetPanel({ id, setSel, brief }: { id: string; setSel: Props['setSel']; brief?: boolean }) {
+  const { state, run, forecast, scenario } = useOps();
   const t = state.t;
+  // current state from the world, clock and clock-driven severity from the forecast (audit C1)
+  const visual = useMemo(() => honestVisual(run, scenario, t, t, forecast), [run, forecast, scenario, t]);
   const a = assetById.get(id);
   if (!a) return null;
-  const vis = run.visualAt(t)[id];
-  const clock = run.clocks[id];
+  const vis = visual[id];
+  const clock = forecast.clocks[id];
   const readings = run.readingsAt(t).concat(state.capturedReadings.filter((r) => r.t <= t)).filter((r) => r.assetId === id);
   const byMetric = new Map<string, Reading>();
   for (const r of readings) { const k = `${r.metric}|${r.source}`; const p = byMetric.get(k); if (!p || r.t >= p.t) byMetric.set(k, r); }
@@ -294,7 +301,7 @@ function AssetPanel({ id, setSel }: { id: string; setSel: Props['setSel'] }) {
   const age = a.installedYear ? 2026 - a.installedYear : undefined;
   return (
     <div className="insp">
-      <header className="insp-h">
+      {!brief && <header className="insp-h">
         <div className="insp-kicker mono">{a.id} · {a.type.toUpperCase()} · {zoneById.get(a.zoneId)?.name}{a.location.row ? ` · row ${a.location.row} slot ${a.location.slot}` : ''}</div>
         <h2>{vis && <SevMark sev={vis.severity} label />} {a.name}</h2>
         <div className="insp-tags">
@@ -302,12 +309,14 @@ function AssetPanel({ id, setSel }: { id: string; setSel: Props['setSel'] }) {
           {vis?.wet && <span className="tag tag-water">WET · model</span>}
           {a.services?.map((s) => <span key={s} className="tag">{serviceById.get(s)?.name} · C{serviceById.get(s)?.criticality}</span>)}
         </div>
-      </header>
-      <Section title="Fix this" className="sec-fix" aside={<span className="pane-sub">what each action saves</span>}>
-        <FixPanel assetIds={[a.id]} />
-      </Section>
+      </header>}
+      {!brief && (
+        <Section title="Fix this" className="sec-fix" aside={<span className="pane-sub">what each action saves</span>}>
+          <FixPanel assetIds={[a.id]} />
+        </Section>
+      )}
       {clock && (
-        <Section title="Time to impact">
+        <Section title="Time to impact" aside={<span className="pane-sub">forecast from observed faults</span>}>
           <Countdown clock={clock} now={t} />
           <p className="muted small">Via {clock.path.join(' → ')}</p>
         </Section>

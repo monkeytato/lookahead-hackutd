@@ -1,0 +1,78 @@
+<section class="chapter flow" id="s6">
+  <div class="kicker">Section 6</div>
+  <h1>Validation, reported honestly</h1>
+  <p class="lead">Two kinds of check: the physics against published cooling-outage transients, and the statistics against a harness that knows the "true" outcome. Both are reported with their misses. Neither is yet a replay of a measured site incident, which is the next real validation.</p>
+
+  <h2>6.1 Thermal backtest against WP179 and its CFD room</h2>
+  <p><b>Procedure.</b> Configure the model with WP179 Example 1's stated room (30 × 24 × 4 m plus a 0.6 m plenum, 400 kW, 100 racks of 545 kg, generator at 60 s, chiller restart at 12 min). Fit only the one declared unknown, the loop water volume, to the published 41.1 °C baseline peak. Then <i>predict</i> the 5-minute and 4-minute restart cases, the recovery time and the CFD room. The curves below come from running the shipped <code>simulateThermal</code> with the exact parameters of <code>tests/engine/thermalZone.test.ts</code> (k<sub>G</sub> = 2, ε = 0.8, instant chiller restart).</p>
+  <figure>
+    <!--CHART:wp179-->
+    <figcaption><b>Figure 6.</b> WP179 Example 1. Model curves (solid) against the published peaks (dashed) and the published "unacceptably high until about 17 minutes" point. The 12-minute baseline is the fitted case; the 5-minute restart is predicted within 1 °C; the 4-minute restart is over-predicted, a known miss.</figcaption>
+  </figure>
+  <div class="grid-fig">
+    <figure style="margin-top: 0">
+      <!--CHART:cfd-->
+      <figcaption><b>Figure 7.</b> WP179 CFD room with no cooling recovery. The IT load is illegible in the source, so it was inferred from the 0–30 s slope ({{cfdKw}} kW) and {{cfdRacks}} racks were assumed: a consistency check, not an independent validation.</figcaption>
+    </figure>
+    <div>
+      <p><b>Reading the backtest.</b></p>
+      <ul>
+        <li>Textbook coupling (k<sub>G</sub> = 1) over-predicts the late rise badly: 45.6 °C against 37.3 °C at 300 s in the CFD room.</li>
+        <li>k<sub>G</sub> = 2 meets the CFD criteria and the Example 1 baseline and 5-minute peaks.</li>
+        <li>It misses the 4-minute peak by about 2.5–3.5 °C. A one-node water loop cannot reproduce how fast a restart recovers; a two-node loop is the likely fix and is future work.</li>
+        <li>The fitted loop volume falls to the grid floor at k<sub>G</sub> = 2: <!--CHART:fit-->. The loop volume is therefore <b>not identifiable</b> from WP179 and is sampled from practice instead (§3.1).</li>
+      </ul>
+    </div>
+  </div>
+  <!--CHART:backtestTable-->
+  <p class="small">Model columns give an instant chiller restart / a 4-minute capacity ramp (CFD rows have no restart). Acceptance limits are the dossier's §7.1 criteria. Values from <code>research/derived/thermal_backtest_kG1.json</code> and <code>_kG2.json</code>; the shipped port reproduces the k<sub>G</sub> = 2 instant-restart column ({{wpPeak12}}, {{wpPeak5}}, {{wpPeak4}} °C; CFD {{cfd60}} and {{cfd300}} °C). <b>Caveat on WP179:</b> its values were read through a web-fetch tool, not a PDF renderer, and transcribed by hand from figure text (106 °F, 98 °F, "only marginally above" 90 °F); they should be re-checked against the PDF. No value from WP179 Table 2 is used. Not run as tests: the Tradat 2018 fans-running shape check and the Alkharabsheh 2017 throttle-time factor check (not measured); the DLC prior is taken directly from the measured range.</p>
+</section>
+
+<section class="chapter cont">
+  <h2>6.2 Are the intervals honest? Coverage</h2>
+  <p><b>Harness.</b> <code>npm run validate</code> runs 36 scenarios (6 named, 3 of them modelled on real incidents, plus 30 random) × 50 iterations, seed 1. Each iteration draws a "reality" and asks whether each realised loss time falls inside the predicted p10–p90. For an honest 80 % interval the answer should be yes about 80 % of the time. The default perturbation widens delays ±30 % with a per-iteration bias of ±20 %, shifts start times ±2 min, scales leak and spread rates ±40 %, and misses a first signal 20 % of the time (up to 5 min of extra detection lag).</p>
+  <figure>
+    <!--CHART:coverage-->
+    <figcaption><b>Figure 8.</b> p10–p90 coverage from <code>reports/validation-2026-11-08-*.md</code>. Target 80 %, acceptable band 75–85 %.</figcaption>
+  </figure>
+  <table>
+    <thead><tr><th>Model</th><th>"Reality" it is judged against</th><th class="n">Coverage</th><th class="n">p50 |error|</th><th class="n">Bias</th><th class="n">False alarms</th><th class="n">First rack right</th></tr></thead>
+    <tbody>
+      <tr><td>Legacy cascade (before)</td><td>Perturbed copy of itself</td><td class="n"><b>{{covLegacy}} %</b></td><td class="n">{{errLegacy}}</td><td class="n">{{biasLegacy}}</td><td class="n">{{faLegacy}}</td><td class="n">{{frLegacy}} %</td></tr>
+      <tr class="hl"><td>Ensemble</td><td>Draws from its own priors (self-consistency)</td><td class="n"><b>{{covPrior}} %</b></td><td class="n">{{errPrior}}</td><td class="n">{{biasPrior}}</td><td class="n">{{faPrior}}</td><td class="n">{{frPrior}} %</td></tr>
+      <tr class="hl"><td>Ensemble</td><td>Priors widened ±30 %, starts ±2 min, rates ±40 %</td><td class="n"><b>{{covPert}} %</b></td><td class="n">{{errPert}}</td><td class="n">{{biasPert}}</td><td class="n">{{faPert}}</td><td class="n">{{frPert}} %</td></tr>
+      <tr><td>Ensemble</td><td>Perturbed legacy cascade</td><td class="n"><b>{{covEnsLeg}} %</b></td><td class="n">{{errEnsLeg}}</td><td class="n">{{biasEnsLeg}}</td><td class="n">{{faEnsLeg}}</td><td class="n">{{frEnsLeg}} %</td></tr>
+    </tbody>
+  </table>
+  <p><b>What the three numbers mean.</b></p>
+  <ul>
+    <li><b>{{covLegacy}} % before.</b> The legacy model sampled only delay noise, so its intervals were far too narrow. By asset type, chiller coverage was 4 % and ATS 5 %; under the perturbed reality the ensemble lifts every asset type, to between 38 % (chiller) and 61 % (battery).</li>
+    <li><b>{{covPrior}} % self-consistent.</b> When reality is drawn from the same priors, the ensemble's intervals contain {{covPrior}} % of outcomes, inside the 80 ± 3 % target. This is a correctness check of the weighting and the quantiles (a bug would show here), not a claim about the real world.</li>
+    <li><b>{{covPert}} % under widened priors.</b> When reality departs from the priors (wider delays, shifted starts, different rates), coverage drops to {{covPert}} %, below the 75–85 % band. Coverage more than doubles, but the intervals are still too narrow when the priors are wrong, and the median error grows from 3.0 to 4.9 minutes.</li>
+  </ul>
+  <div class="callout teal">
+    <div class="t">Why the UI says "model range"</div>
+    Until validated coverage lands in 75–85 % under the perturbed reality, the interval is not called a p10–p90. <code>coverage.ts</code> generates the UI note from the latest results: <i>"{{coverageNote}}"</i>
+  </div>
+</section>
+
+<section class="chapter cont">
+
+  <h2>6.3 First-rack accuracy</h2>
+  <p>"First rack right" asks whether the model names the rack that is actually impacted first. It rose from <b>{{frLegacy}} %</b> of {{judgedLegacy}} judged iterations (legacy) to <b>{{frPert}} %</b> of {{judgedPert}} under the perturbed reality and <b>{{frPrior}} %</b> of {{judgedPrior}} under self-consistency. Predicted versus realised racks saved by a fix was checked only for the legacy model, which predicted 32.1 racks saved on average against 23.6 realised, an overstatement of about 36 %. The ensemble runs did not check fixes ("0 scenarios checked"), so fix accuracy for the new engine is <b>not measured</b>.</p>
+  <h2>6.4 Engine tests that guard the science</h2>
+  <p>Prior-predictive coverage within 72–88 %; evidence-posterior calibration on synthetic truth (each P(real) bin within ±0.05); no foreknowledge (forecasts invariant to unobserved future faults, a property test); bounded importance weights, a rare event recovered within 3 SE at N = 8,000 and unbiased random proposals; EVSI ≥ 0 and equal to brute force on a toy case; the thermal backtest, energy conservation and closed form against Euler. 282 tests passed at the end of the overhaul.</p>
+  <h2>6.5 Runtimes</h2>
+  <table>
+    <thead><tr><th>Operation</th><th class="n">Measured</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>Ensemble, 2 options × 2,048 trials, cold (includes the water-layer cache)</td><td class="n">0.49 s</td><td>Node</td></tr>
+      <tr><td>Ensemble, 4 options, warm</td><td class="n">0.17 s</td><td>Node</td></tr>
+      <tr><td>One cascade run (pre-overhaul engine bench: 400 runs in 14 ms)</td><td class="n">22–36 µs</td><td>Node, <code>bench_engine.ts</code></td></tr>
+      <tr><td>Full evaluation with the local planner (CE fallback)</td><td class="n">0.15–0.7 s</td><td>Node (test bound 3 s)</td></tr>
+      <tr><td>Full evaluation with live Nemotron (heat / water)</td><td class="n">16.0 s / 18.4 s</td><td>bridge server, 12 requests each</td></tr>
+      <tr><td>Validation harness, 36 × 50: legacy / prior-predictive / perturbed / vs legacy</td><td class="n">{{secLegacy}} / {{secPrior}} / {{secPert}} / {{secEnsLeg}} s</td><td>Node, report headers</td></tr>
+      <tr><td>Ensemble in the browser (static artifact)</td><td class="n">not measured</td><td>checked to run, not timed</td></tr>
+    </tbody>
+  </table>
+</section>

@@ -273,7 +273,8 @@ export interface OpEvent {
 /** Per-node time-to-impact from the cascade engine (Monte Carlo over delay ranges). */
 export interface ImpactClock {
   assetId: ID;
-  /** Minutes from fault start; null when not impacted within horizon in that percentile */
+  /** Scenario minute (absolute, same clock as `t`) at which this node is lost in that percentile;
+   *  null when not lost within the horizon. Time left at minute t is `p50 - t`. */
   p10: number | null;
   p50: number | null;
   p90: number | null;
@@ -377,7 +378,10 @@ export interface Scenario {
   horizonMin: number;
   faults: { assetId: ID; t: number }[];
   /** stopT: the leak stops adding water from this minute (set by the engine when the source is isolated) */
-  leak?: { x: number; z: number; ratePerMin: number; startT: number; stopT?: number };
+  /** ratePerMin in L/min; startT/stopT scenario minutes. sourceFailsAfterMin: minutes after startT that the
+   *  leaking source itself stops working (default 0, e.g. a burst riser). A CDU secondary loop keeps
+   *  cooling until its few tens of litres have drained. */
+  leak?: { x: number; z: number; ratePerMin: number; startT: number; stopT?: number; sourceFailsAfterMin?: number };
   steps: ScenarioStep[];
   /** 'real' = adapted from a public incident report; 'random' = generated; 'what-if' = engineering case */
   kind?: 'real' | 'random' | 'what-if';

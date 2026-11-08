@@ -1,0 +1,30 @@
+<section class="chapter flow" id="s5">
+  <div class="kicker">Section 5</div>
+  <h1>Data pulled</h1>
+  <p class="lead">About 30 MB in 9 files across 7 source folders, retrieved on 2026-11-07, with URL, date and licence for each in <code>research/SOURCES.md</code>. All downloads are treated as untrusted data: nothing downloaded is executed, and the analysis scripts only read the files as text.</p>
+  <table class="split">
+    <thead><tr><th style="width: 30%">Dataset</th><th style="width: 24%">Volume</th><th>What it was used for in the build</th></tr></thead>
+    <tbody>
+      <tr><td><b>Open-Meteo archive</b>, DFW airport grid cell, hourly 2016–2025 (ERA5 reanalysis; CC BY 4.0)</td><td>87,672 hours × 5 variables (dry-bulb, RH, dew point, wet-bulb, pressure), 3.4 MB</td><td>Heat-wave exposure and chiller-derate hours (Figure 5). <i>Context only:</i> the planned ambient prior for the heat-wave scenario is not yet sampled by the ensemble.</td></tr>
+      <tr><td><b>NOAA NCEI Global Hourly</b>, station 72259003927 (DFW), 2023, 2024, 2025 to 27 Aug</td><td>23,165 routine hourly reports, 20 MB raw CSV</td><td>Ground truth for the reanalysis: daily-maximum bias −0.2 °C (5th–95th percentile −2.6 to +2.5 °C, 970 days)</td></tr>
+      <tr><td><b>INL/EXT-21-65055</b> component reliability, 2020 update</td><td>4.4 MB PDF, about 100 component and failure-mode rows used</td><td>Every on-demand failure probability and per-hour hypothesis rate (§3.3), via <code>reliability_priors.json</code></td></tr>
+      <tr><td><b>ASHRAE TC9.9</b> 5th-edition reference card</td><td>160 KB PDF</td><td>The 32 °C envelope clock; the 40 / 45 °C anchors of the service-impact clock</td></tr>
+      <tr><td><b>Schneider Electric WP179</b></td><td>616 KB PDF</td><td>Energy-balance model form; the backtest targets (§6.1)</td></tr>
+      <tr><td><b>Tradat et al. 2018</b>, Binghamton (measured)</td><td>1.0 MB PDF</td><td>Measured ride-through with fans running: 74 kW in a 215 m² lab reached 32 °C in 22–46 min (IPMI vs external sensors); server IPMI sensors read hot and under-estimated ride-through by 12–42 %</td></tr>
+      <tr><td><b>Published transients</b>, hand-transcribed</td><td>30 points from 6 sources (WP179 and its CFD case, Opengate 2007, Khankari, Tradat 2018, Alkharabsheh 2017, Intel 2007)</td><td>Backtest targets in <code>cooling_outage_points.csv</code>; each row carries its URL and an M / S / V marker</td></tr>
+    </tbody>
+  </table>
+  <p class="small">Read online but not downloaded: Alkharabsheh 2017 (DLC throttle times), Khalili 2019 (server-inlet sensor bias), Petrich (counterfeit DS18B20), Schneider WP75 (UPS and generator inputs), NREL generator reliability, AMCA 204-20, the Uptime Institute releases, the Google Cloud europe-west9 incident report, Trane and Daikin restart pages. Derived outputs: <code>dfw_weather_summary.json</code>, <code>thermal_backtest_kG1.json</code>, <code>thermal_backtest_kG2.json</code>, <code>reliability_priors.json</code>.</p>
+  <figure>
+    <!--CHART:dfw-->
+    <figcaption><b>Figure 5.</b> Hours per year at or above 35 °C and 40 °C dry-bulb in Dallas–Fort Worth (Open-Meteo, <code>dfw_weather_summary.json</code>). Air-cooled chillers are rated at 35 °C and lose capacity above it. 2023 was the extreme year: maximum 43.3 °C, 99.6 % design value 41.6 °C, 136 hours at or above 40 °C (the DFW station recorded 124). With an assumed derate of 2 %/°C, 2023 had 130 hours below 90 % chiller capacity. February 2021 (Winter Storm Uri) had 50 hours at or below −10 °C, minimum −17.8 °C; cold-weather generator effects are not modelled.</figcaption>
+  </figure>
+  <h2>What could not be obtained</h2>
+  <ul>
+    <li>IEEE 493 Annex Q tables and IEEE 3006.8 (paywalled): the Gold Book generator figure is used only through WP75's citation.</li>
+    <li>Manufacturer chiller capacity-versus-ambient tables (they live in selection software), so the derate per °C is an assumption, U(1.0, 2.0) %/°C <span class="tag a">A</span>.</li>
+    <li>Any measured data-center leak-spread data; any base rate of false temperature or leak alarms; full texts of Zhang and VanGilder 2011 and Lin et al. 2014.</li>
+    <li>No local PDF renderer was available, so PDF numbers were read through a web-fetch tool. <b>WP179 Table 2 was reconstructed from scrambled PDF text</b> and must be checked against the PDF before it is quoted; this document quotes no value from that table.</li>
+  </ul>
+  <p class="small">Licences: Open-Meteo CC BY 4.0 ("Weather data by Open-Meteo.com"); NOAA US-government data, no restrictions; INL publicly released via OSTI; ASHRAE, Schneider Electric and ASME PDFs are reference copies only and must not be redistributed (keep <code>research/data/**/*.pdf</code> out of any public repository).</p>
+</section>

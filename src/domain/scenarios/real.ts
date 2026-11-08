@@ -50,7 +50,7 @@ export const realScenarios: Scenario[] = [
     ],
     steps: [
       { t: 3, kind: 'fault', assetId: 'UPS-B', summary: 'Fire starts at UPS-B' },
-      { t: 3, kind: 'alert', assetId: 'UPS-B', summary: 'Smoke detection, UPS room — UPS-B alarm', metric: 'battery_temp_c', value: 58, source: 'installed' },
+      { t: 3, kind: 'alert', assetId: 'UPS-B', summary: 'Smoke detection in the UPS room — UPS-B battery cabinet at 58 °C', metric: 'battery_temp_c', value: 58, source: 'installed' },
       { t: 6, kind: 'note', assetId: 'UPS-B', summary: 'UPS-B offline; its PDUs run on the A side only' },
     ],
     incidents: [

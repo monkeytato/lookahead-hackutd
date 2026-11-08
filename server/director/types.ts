@@ -18,7 +18,23 @@ export interface DirectorInput {
   scans: Scan[];
   /** Candidate dependency edges the operator has already opted in (used in every run) */
   confirmedEdgeIds: string[];
+  /** Short operator question (≤ 500 chars). Log context goes in `context`, never appended here (audit C6). */
   question?: string;
+  /** Structured log context (capped: 20 events × 200 chars, 10 notes × 200 chars); read with get_context */
+  context?: DirectorContext;
+  /** Present when evaluating one workflow incident: enables the ensemble, stress and EVSI tools */
+  evaluation?: EvaluationRequest;
+}
+
+export interface DirectorContext { events: { id: string; at: string; summary: string }[]; notes: string[] }
+
+export interface EvaluationRequest {
+  kind: 'sensor' | 'heat' | 'water' | 'vibration';
+  /** Evidence posterior P(alarm reflects a real condition), engine output */
+  pReal: number;
+  pRealBasis?: string;
+  installed?: number;
+  seed?: number;
 }
 
 /** Normalized parameters of one engine run (what-if). */
@@ -86,10 +102,14 @@ export interface ScanValueResult {
   orderChanged: boolean;
   earliestIfAbnormalMin: number | null;
   earliestIfNormalMin: number | null;
+  /** SIGNED normal − abnormal (positive = a normal reading leaves more time) */
   earliestShiftMin: number;
+  earliestDirection: 'earlier' | 'later' | 'unchanged';
   firstRackLossIfAbnormalMin: number | null;
   firstRackLossIfNormalMin: number | null;
+  /** SIGNED normal − abnormal (positive = a normal reading leaves more time) */
   firstRackShiftMin: number;
+  firstRackDirection: 'earlier' | 'later' | 'unchanged';
   lostAfterNowDelta: number;
   decisionValue: number;
   note: string;
@@ -157,4 +177,38 @@ export interface DirectorResult {
   /** Re-plan chain: 1 = operator-triggered, 2+ = automatic re-plan after a requested scan landed */
   generation?: number;
   trigger?: string;
+  /** Engine ensemble / red-team / EVSI results of an evaluation session (all numbers engine output) */
+  evaluation?: EvaluationOutput;
+}
+
+export interface EvaluationOptionLite {
+  id: string; label: string;
+  racks: { p10: number; p50: number; p90: number; mean: number };
+  pServiceDown: number; ci90: [number, number];
+  firstImpactMin: { p10: number | null; p50: number | null; p90: number | null } | null;
+  firstEnvelopeMin: { p10: number | null; p50: number | null; p90: number | null } | null;
+  expectedUtility: number;
+}
+
+export interface EvaluationOutput {
+  kind: EvaluationRequest['kind'];
+  scenarioId: string;
+  t: number;
+  pReal: number;
+  pRealBasis: string;
+  /** id the text cites for these numbers, e.g. stress-1 */
+  citeId: string;
+  trials: number;
+  ess: number;
+  options: EvaluationOptionLite[];
+  withOptionId: string | null;
+  stress: null | {
+    by: 'nemotron' | 'cross_entropy'; option: string; rounds: number; trials: number; ess: number; pFail: number; ci90: [number, number]; converged: boolean; maxWeight: number;
+    regions: { label: string; rationale?: string; priorMass: number; priorOneIn: number; pFailGivenRegion: number; shareOfFailure: number; trialsInRegion: number }[];
+    rejected: string[];
+    citeId: string;
+  };
+  nextScan: null | { assetId: string; metric: string; point: string; evsi: number; forecastShift: number; informs: string; bestActionIfNoScan: string; bestActionByOutcome: { bin: string; pBin: number; action: string }[] };
+  hypotheses: { id: string; label: string; p: number; basis: string; basisKind: string }[];
+  elapsedMs: number;
 }

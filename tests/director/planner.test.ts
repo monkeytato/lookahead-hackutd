@@ -20,9 +20,9 @@ describe('local planner on scn-riser-leak at T+25', () => {
     expect(res.fallbackReason).toBe('test');
   });
 
-  it('baseline run-1 matches the engine scenario run exactly', () => {
+  it('baseline run-1 matches the engine forecast run at T+25 exactly (no foreknowledge)', () => {
     const scn = scenarios.find((s) => s.id === 'scn-riser-leak')!;
-    const sim = simulateScenario({ facility, scenario: scn, seedReadings: seedReadings() });
+    const sim = simulateScenario({ facility, scenario: scn, seedReadings: seedReadings(), mode: 'forecast', forecastAt: 25 });
     const base = res.runs['run-1'];
     expect(base.topClocks.length).toBe(8);
     for (const c of base.topClocks) expect(c.atP50).toBe(sim.clocks[c.assetId].p50);

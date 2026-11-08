@@ -1,0 +1,28 @@
+<section class="chapter cont" id="s3-5">
+  <h2>3.5 The cascade and the two-level ensemble</h2>
+  <p><b>The cascade.</b> The facility is a dependency graph: utility → generator → ATS → UPS → PDU → rack for power, chiller → pump → CRAH or CDU → rack for cooling, and derived "shares space" edges for water and fire. Each edge has a delay. A node's loss time is the minimum over its redundancy groups of the maximum over that group's members:</p>
+  <div class="eq">
+    <span class="row"><i>t</i><sub>loss</sub>(<i>n</i>) = min<sub>groups <i>g</i></sub> &nbsp;max<sub><i>m</i> ∈ <i>g</i></sub> [ <i>t</i><sub>loss</sub>(<i>m</i>) + delay(<i>m</i> → <i>n</i>) ]</span>
+    <span class="note">AND within a redundancy group (a CRAH pair fails the rack only when both units are gone), MIN across groups (any one independent path is enough). Propagated by a Dijkstra-like relaxation; fixes recover nodes from their effect time. <code>cascade.ts</code> was split into <code>compileGraph</code> + <code>runOnce</code>, checked bit-identical with the old <code>runCascade</code> on six scenarios.</span>
+  </div>
+  <p><b>Two levels of uncertainty.</b> The old engine sampled only the edge delays, independently on every edge, so the 44 rack edges of one room averaged out and looked certain. The ensemble separates what we do not <i>know</i> (epistemic, shared by everything in a trial) from what <i>varies</i> trial to trial (aleatory):</p>
+  <div class="eq">
+    <span class="row"><b>Outer</b> (256 draws): θ ~ <i>q</i>(θ): physics parameters, on-demand failures, battery health, crew speed, leak film/rate/start, hot-spot growth, hazard spread, hypotheses. &nbsp; weight <i>w</i>(θ) = <i>p</i>(θ)/<i>q</i>(θ)</span>
+    <span class="row"><b>Inner</b> (8 draws per θ): the remaining triangular edge delays, generator start-to-transfer, DLC throttle time, battery runtime at load, which UPS drops on transfer</span>
+    <span class="row"><i>P</i><sub>est</sub>(<i>F</i>) = Σ<sub><i>i</i></sub> <i>w</i><sub><i>i</i></sub> <i>F</i><sub><i>i</i></sub> / Σ<sub><i>i</i></sub> <i>w</i><sub><i>i</i></sub>, &nbsp; ESS = (Σ<i>w</i>)² / Σ<i>w</i>², &nbsp; 90 % interval from the outer-level (cluster) variance; no events → [0, 2.3/ESS]</span>
+    <span class="note">F = any criticality ≥ 4 service with every replica impacted within the 60-minute incident horizon. Without a stress mixture q = p, except that hypotheses with p outside 0.3–0.7 are drawn at 0.5 and weighted p/0.5, so both branches are always explored. <code>ensemble.ts</code>.</span>
+  </div>
+  <p><b>Ingredients.</b> Cooling edges take their delays from the zone model (§3.1). Generator → ATS is Triangular(0.15, 0.5, 3.2) min, spanning NFPA 110's 10 s, WP179's 60 s and WP75's 190 s. On a utility loss, generator fail-to-start, ATS fail-to-transfer and a UPS drop become faults at their §3.3 probabilities (which UPS drops is 50/50 <span class="tag a">A</span>). Battery ride-through is the fixture triangle × state of health, string A U(0.9, 1.0) and string B, 11 years into a 10-year life, U(0.6, 0.85) <span class="tag a">A</span>. A fix takes effect at <i>t</i> + fixture delay × a crew multiplier LogNormal(median 1, error factor 2) <span class="tag a">A</span> (no data-center response data were found); a chiller restart at <i>t</i> + 3 × crew + U(2.5, 15) min; standby CRAH, chiller restart and manual generator start can fail on demand. In the rack-inlet incident, a real hot spot relaxes toward now + U(0, 12) °C with time constant U(5, 20) min; shedding load halves the excess and portable cooling cuts it to 30 % <span class="tag a">A</span>. Fire spread speed carries a LogNormal(1, σ<sub>ln</sub> 0.3) multiplier <span class="tag a">A</span>.</p>
+  <p><b>What each response option gets.</b> Racks impacted at p10/p50/p90 (weighted quantiles) and mean; P(critical service down) with its 90 % interval; minutes to the first service impact and to the first 32 °C crossing; P(impact) per rack; and an expected utility <i>U</i> = −Σ<sub>racks</sub> <i>w</i><sub>crit</sub> · 1[impacted] − λ · crew-minutes, with <i>w</i><sub>crit</sub> the highest service criticality on the rack and λ = 0.05 rack-equivalents per crew-minute <span class="tag a">A</span>, shown in the UI. The seed is derived from the incident, the time and the evidence, so a replay is identical.</p>
+  <h3>Incident scenarios: evaluating each warning on its own</h3>
+  <p>Each demo warning is evaluated in a scenario built from the injected incident alone (<code>src/domain/scenarios/incident.ts</code>), with no scripted future:</p>
+  <table>
+    <thead><tr><th>Warning</th><th>Hypotheses sampled</th><th>Options compared</th></tr></thead>
+    <tbody>
+      <tr><td>A-11 inlet 34.2 °C</td><td>Real local hot spot, at P(real)</td><td>No response · shed load · portable cooling</td></tr>
+      <tr><td>CH-1 supply alarm</td><td>CH-1 really stopped, at P(real); CH-2 also trips, at the INL rate</td><td>No response · restart CH-1</td></tr>
+      <tr><td>PIPE-L2 make-up-flow mismatch</td><td>The leak is real, at P(real); start unknown</td><td>No response · isolate valve · transfer UPS-B</td></tr>
+      <tr><td>CRAH-2 vibration 6.8 mm/s</td><td>Fan trips within the hour, at P(real) × 0.02 <span class="tag a">A</span></td><td>No response · swap to standby CRAH</td></tr>
+    </tbody>
+  </table>
+</section>

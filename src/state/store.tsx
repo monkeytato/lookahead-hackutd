@@ -6,7 +6,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
 import {
   employees as seedEmployees, facility, seedIncidents, seedReadings, seedTasks,
-  SCENARIO_WALL_START,
 } from '../domain/fixture';
 import type { Fix, Scenario } from '../domain/types';
 import { useStage } from '../stage/StageProvider';
@@ -15,6 +14,7 @@ import type {
   DependencyEdge, Employee, Incident, OpEvent, Reading, Task, VerificationSession, ID,
 } from '../domain/types';
 import { simulateScenario, type ScenarioRun } from '../domain/engine';
+import { liveForecast } from './liveForecast';
 
 export type Selection =
   | { kind: 'asset'; id: ID }
@@ -59,6 +59,7 @@ export interface OpsState {
 }
 
 const STORAGE_KEY = 'lookahead.ops.v5';
+const SEED = seedReadings();
 
 export function initialState(scenarioId = 'scn-riser-leak', stageEpoch = 0): OpsState {
   return {
@@ -196,12 +197,7 @@ export function makeEvent(t: number, partial: Omit<OpEvent, 'id' | 't' | 'ingest
   return { id: `EV-${Date.now().toString(36)}-${evtCounter}`, t, ingestedAt: new Date().toISOString(), ...partial };
 }
 
-export function wallClock(t: number): string {
-  const total = SCENARIO_WALL_START.h * 60 + SCENARIO_WALL_START.m + Math.round(t);
-  const h = Math.floor((((total / 60) % 24) + 24) % 24);
-  const m = ((total % 60) + 60) % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-}
+export { wallClock } from '../domain/clock';
 
 export function relMin(now: number, t: number): string {
   const d = Math.round(now - t);
@@ -217,7 +213,18 @@ interface Ctx {
   state: OpsState;
   /** Store actions. set_t / play / reset are forwarded to the stage so every screen follows. */
   dispatch: (a: Action) => void;
+  /**
+   * The WORLD: the scenario script replayed with the ordered fixes. Use it for what is true now
+   * (readings, water / fire / smoke, steps, incidents, failures that have happened), never for a
+   * prediction: it knows faults nobody can observe yet.
+   */
   run: ScenarioRun;
+  /**
+   * The FORECAST at the current minute (audit C1): only faults observed or inferable by t, with the
+   * ordered fixes. Use it for every clock, countdown, "if nothing changes", the +N preview and fix
+   * savings. Rerun only when the observation state, the fixes or the extra edges change.
+   */
+  forecast: ScenarioRun;
   scenario: Scenario;
   /** Incidents visible at the current scrub time */
   visibleIncidents: Incident[];
@@ -303,6 +310,9 @@ export function OpsProvider({ children }: { children: ReactNode }) {
     () => simulateScenario({ facility, scenario, seedReadings: seedReadings(), extraEdges: activeExtraEdges, fixes: JSON.parse(fixesKey) as Fix[] }),
     [scenario, activeExtraEdges, fixesKey],
   );
+  // cached inside liveForecast on what is observable at t: the same object until that changes
+  const forecastFixes = useMemo(() => JSON.parse(fixesKey) as Fix[], [fixesKey]);
+  const forecast = liveForecast({ facility, scenario, seedReadings: SEED, t, fixes: forecastFixes, extraEdges: activeExtraEdges });
 
   // auto-raise incidents from the scenario as the clock passes (grouped by cause)
   useEffect(() => {
@@ -326,7 +336,7 @@ export function OpsProvider({ children }: { children: ReactNode }) {
     if (!current) return;
     for (const f of fixes) {
       if (!inner.fixesLogged.includes(f.id)) {
-        innerDispatch({ type: 'fix_logged', fixId: f.id, epoch: stageEpoch, event: makeEvent(f.orderedAt, { kind: 'task', actor: 'stage', summary: `Fix ordered: ${f.label} (takes effect T+${Math.round(f.effectiveAt)})`, links: { assetId: f.assetId }, source: 'operator' }) });
+        innerDispatch({ type: 'fix_logged', fixId: f.id, epoch: stageEpoch, event: makeEvent(f.orderedAt, { kind: 'task', actor: 'stage', summary: `Fix ordered: ${f.label} (takes effect T+${Math.floor(f.effectiveAt)})`, links: { assetId: f.assetId }, source: 'operator' }) });
       }
       if (f.effectiveAt <= t && !inner.fixesInEffect.includes(f.id)) {
         innerDispatch({ type: 'fix_in_effect', fix: f, epoch: stageEpoch, event: makeEvent(f.effectiveAt, { kind: 'task', actor: 'engine', summary: `Fix in effect: ${f.label}`, links: { assetId: f.assetId }, source: 'simulated' }) });
@@ -336,7 +346,7 @@ export function OpsProvider({ children }: { children: ReactNode }) {
 
   const visibleIncidents = useMemo(() => state.incidents.filter((i) => i.openedAt <= t), [state.incidents, t]);
 
-  const value = useMemo<Ctx>(() => ({ state, dispatch, run, scenario, visibleIncidents, activeExtraEdges }), [state, dispatch, run, scenario, visibleIncidents, activeExtraEdges]);
+  const value = useMemo<Ctx>(() => ({ state, dispatch, run, forecast, scenario, visibleIncidents, activeExtraEdges }), [state, dispatch, run, forecast, scenario, visibleIncidents, activeExtraEdges]);
   return <OpsContext.Provider value={value}>{children}</OpsContext.Provider>;
 }
 

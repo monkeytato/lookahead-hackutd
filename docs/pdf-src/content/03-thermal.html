@@ -1,0 +1,38 @@
+<section class="chapter" id="s3">
+  <div class="kicker">Section 3 · Models</div>
+  <h1>The models</h1>
+  <p class="lead">Five models produce the numbers: equations in plain language, constants with their evidence markers, and what each model cannot do.</p>
+
+  <h2>3.1 Heat-up after cooling loss: a room energy balance with two clocks</h2>
+  <p><b>Idea.</b> When the cooling units stop, the servers keep running on UPS and their heat goes first into the room air, then into the metal of the servers and racks, and, if the fans still run, into the chilled-water loop. A rack has no temperature limit of its own: its inlet <i>is</i> the zone's air. CenterGuard therefore models one well-mixed zone per pair of air handlers (CRAH units) with three lumped heat stores, the model form used by Schneider Electric WP179 and its patents US9418179B2 and US10817033.</p>
+  <div class="eq">
+    <span class="row"><i>C</i><sub>a</sub> d<i>T</i><sub>a</sub>/d<i>t</i> = <i>P</i><sub>air</sub> − <i>Q</i><sub>coil</sub>(<i>t</i>) − <i>G</i> (<i>T</i><sub>a</sub> − <i>T</i><sub>m</sub>) &nbsp;&nbsp;&nbsp; room air (≈ rack inlet)</span>
+    <span class="row"><i>C</i><sub>m</sub> d<i>T</i><sub>m</sub>/d<i>t</i> = <i>G</i> (<i>T</i><sub>a</sub> − <i>T</i><sub>m</sub>) &nbsp;&nbsp;&nbsp; IT equipment and rack steel</span>
+    <span class="row"><i>C</i><sub>w</sub> d<i>T</i><sub>w</sub>/d<i>t</i> = <i>Q</i><sub>coil</sub>(<i>t</i>) − <i>Q</i><sub>chiller</sub>(<i>t</i>) &nbsp;&nbsp;&nbsp; chilled-water loop</span>
+    <span class="row"><i>C</i><sub>a</sub> = ρ<i>c</i><sub>p</sub><i>V</i>, &nbsp; <i>C</i><sub>m</sub> = <i>N</i><sub>racks</sub> <i>m</i><sub>rack</sub> <i>c</i><sub>m</sub>, &nbsp; <i>G</i> = <b><i>k</i><sub>G</sub></b> · ε · <i>ṁ</i><sub>IT</sub> <i>c</i><sub>p</sub>, &nbsp; <i>Q</i><sub>coil</sub> = fans on ? <i>ṁ</i><sub>crah</sub> <i>c</i><sub>p</sub>(<i>T</i><sub>a</sub> − <i>T</i><sub>s</sub>) : 0</span>
+    <span class="note">C = heat capacity (J/K), T = temperature, P = IT power to air, G = IT–air conductance (W/K), ε = server heat-exchange effectiveness, ṁ = mass flow of air. Implemented in <code>thermalZone.ts</code>.</span>
+  </div>
+  <p><b>In plain words.</b> Right after the fans stop, only the air absorbs the heat, so it warms fast: for the fixture hall (24 × 24 × 3.5 m, 351 kW to air) the initial slope is <i>P</i>/<i>C</i><sub>a</sub> ≈ 8.7 °C/min <span class="tag c">calc</span>. Within minutes heat flows into the much larger metal mass and the rise slows toward <i>P</i>/(<i>C</i><sub>a</sub> + <i>C</i><sub>m</sub>) ≈ 1.2 °C/min <span class="tag c">calc</span>. The air leads the metal by roughly <i>P</i>/<i>G</i>; that lead, not the rack's own kW, sets how fast 32 °C is reached. With fans off the system has a closed form:</p>
+  <div class="eq">
+    <span class="row"><i>T</i><sub>a</sub>(<i>t</i>) = <i>T</i><sub>0</sub> + <i>P t</i>/<i>C</i> + (<i>C</i><sub>m</sub>/<i>C</i>) <i>D</i><sub>∞</sub> (1 − e<sup>−<i>t</i>/τ</sup>), &nbsp; <i>C</i> = <i>C</i><sub>a</sub> + <i>C</i><sub>m</sub>, &nbsp; τ = 1 / [<i>G</i>(1/<i>C</i><sub>a</sub> + 1/<i>C</i><sub>m</sub>)], &nbsp; <i>D</i><sub>∞</sub> = <i>P</i>τ/<i>C</i><sub>a</sub></span>
+    <span class="note">Fans running with chilled water lost (or only coil water left) is integrated with explicit Euler, dt = 2 s. Tests check the closed form against Euler and energy conservation within 0.5 %.</span>
+  </div>
+  <p><b>The coupling factor <i>k</i><sub>G</sub>.</b> With textbook coupling (<i>k</i><sub>G</sub> = 1) the model over-predicts the late rise in WP179's simulated room by about 8 °C at 5 min. A multiplier <i>k</i><sub>G</sub> ≈ 2 reproduces the published peaks within about 0.5–3.5 °C (§6.1). Physically it stands for server fans ramping up and for thermal mass the model leaves out (floor tiles, cabling, walls). Because it is fitted to two simulated cases from one vendor, the ensemble samples it as <i>k</i><sub>G</sub> ~ U(1.5, 3) instead of fixing it.</p>
+
+  <h3>Two clocks, not one "lost" time</h3>
+  <p>The old model called a rack "lost" at 32 °C. That is ASHRAE's A1 <i>allowable</i> limit, the edge of the operating envelope, not a failure. Servers warn or throttle higher up: Dell iDRAC warns at 42 °C and goes critical at 47 °C inlet. CenterGuard reports two clocks per zone:</p>
+  <ul>
+    <li><b>Out of envelope</b> when the inlet crosses <b>32 °C</b> (ASHRAE TC9.9 A1 allowable).</li>
+    <li><b>Service-impact risk</b> when the inlet crosses <b><i>T</i><sub>trip</sub> ~ U(40, 45) °C</b>, anchored on the A3 (40 °C) and A4 (45 °C) allowable limits and the iDRAC thresholds. "Impacted" in every output means this second clock, or a power, water or fire loss.</li>
+  </ul>
+  <p><b>Constants and priors.</b> Published: ρ<i>c</i><sub>p</sub> = 1.19 × 1006 J/m³·K; IT airflow 0.059 m³/s per kW (125 cfm/kW) <span class="tag s">S</span> WP179; IT specific heat 650 J/kg·K (US10817033); service-impact inlet <i>T</i><sub>trip</sub> ~ U(40, 45) °C (ASHRAE A3/A4, iDRAC); DLC throttle after CDU flow stops Triangular(0.3, 0.6, 2.0) min, from 23–353 s measured by Alkharabsheh 2017 <span class="tag m">M</span>. Published point, assumed width: rack + IT mass U(350, 700) kg (WP179 uses 545); ε ~ U(0.6, 0.9) (US10817033 gives 0.7–0.9). Fitted: <i>k</i><sub>G</sub> ~ U(1.5, 3) <span class="tag c">calc</span>. Assumed for lack of site data <span class="tag a">A</span>: ceiling U(3.0, 4.5) m, a 0.6 m plenum with p = 0.5, inter-zone mixing U(0, 0.5), loop water log-U(3, 11) L/kW (not identifiable from WP179), coil share U(0.1, 0.3), CRAH airflow 1.2 × IT airflow, coil effectiveness 0.75, DLC share to air 0.15, start temperature 22.5 °C.</p>
+  <p><b>How the clocks enter the cascade.</b> For each parameter draw θ the engine computes, once per zone, the minutes from fan loss to each threshold (<i>t</i><sub>off</sub>), from loss of chilled-water flow (<i>t</i><sub>flow</sub>) and from loss of chilled-water production (<i>t</i><sub>chw</sub>). The dependency edges then take their delays from physics: CRAH → rack = <i>t</i><sub>off</sub>, pump → CRAH = <i>t</i><sub>flow</sub> − <i>t</i><sub>off</sub>, chiller → pump = <i>t</i><sub>chw</sub> − <i>t</i><sub>flow</sub>, so a chiller loss reaches the racks at <i>t</i><sub>chw</sub>. Racks in a zone share one draw, so they heat up together. The four 31 kW CDU-fed GPU racks take the measured-throttle delay instead, counted as their impact time.</p>
+  <figure>
+    <!--CHART:clocks-->
+    <figcaption><b>Figure 2.</b> Minutes to each inlet threshold in the fixture hall, from the research Monte Carlo (<code>research/derived/thermal_backtest_kG2.json</code>; 2,000 trials over ceiling height, plenum, ε, rack mass, start temperature, loop volume and inter-zone mixing). Losing a CRAH pair's fans is a matter of minutes; losing the chillers while fans run is governed by the loop water and takes several times longer. The pre-overhaul chain (chiller → pump → CRAH → rack, modes 15 + 10 + 6 = 31 min) was too slow for 32 °C and roughly right for 40 °C.</figcaption>
+  </figure>
+  <div class="callout">
+    <div class="t">What this model cannot do</div>
+    It is lumped, not CFD. It cannot represent hot spots, recirculation at a single rack or containment leakage, and one rack's inlet can run several °C hotter than its zone (per-cabinet CFD in Khankari's work reaches 35 °C two to four times faster than well-mixed). Well-mixed is therefore the <i>slow</i> bound. The display-only curve <code>thermal.ts</code> <code>inletTempAt</code> still drives the synthesized readings on screen; predictions use <code>thermalZone.ts</code>.
+  </div>
+</section>

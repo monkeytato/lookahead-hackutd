@@ -38,6 +38,8 @@ export interface RigFrame {
   floor_raw: number;
   /** 6×AA pack voltage via 10k/10k divider on A2 (V = 2·V_A2). Null until divider fitted. */
   pack_v: number | null;
+  /** Optional digital vibration detector; qualitative only, never calibrated mm/s. */
+  vibrating?: boolean | null;
   flap: 'open' | 'closed';
   valve: 'open' | 'closed';
   /** Fan PWM percent, capped at 70 % in firmware (TT motors rated 3–6 V on a 9 V pack) */
@@ -93,7 +95,8 @@ export type ScanChannel =
   | 'delta_t_c'      // outlet − mean(inlet top, inlet bottom)
   | 'reservoir_pct'  // reservoir_raw scaled 0–100 % of calibrated full
   | 'floor_wet'      // fraction of frames with floor_raw above the wet threshold (0..1)
-  | 'pack_v';
+  | 'pack_v'
+  | 'vibration_detected';
 
 export interface ChannelStats {
   n: number;

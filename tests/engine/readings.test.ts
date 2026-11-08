@@ -35,7 +35,7 @@ describe('severityFor / latestReadings', () => {
   });
   it('latest per key at or before now', () => {
     const rs = seedReadings();
-    const a11 = latestReadings(rs, 0).filter((r) => r.assetId === 'A-11');
+    const a11 = latestReadings(rs, 0).filter((r) => r.assetId === 'A-11' && r.metric === 'inlet_temp_c');
     expect(a11).toHaveLength(1);
     expect(a11[0].value).toBe(34.2);
     expect(latestReadings(rs, -1).find((r) => r.assetId === 'A-11')!.value).not.toBe(34.2);
@@ -83,9 +83,17 @@ describe('inletTempAt', () => {
   it('flat before loss, first-order rise after', () => {
     expect(inletTempAt(22, 10, null, 50)).toBe(22);
     expect(inletTempAt(22, 10, 20, 10)).toBe(22);
-    const tau = 4 + 60 / 10;
-    expect(inletTempAt(22, 10, 20, 20 + tau)).toBeCloseTo(22 + 16 * (1 - Math.exp(-1)), 5);
-    expect(inletTempAt(22, 10, 0, 1000)).toBeCloseTo(38, 3);
+    const tau = 2 + 24 / 10; // audit: retuned so the thermal trend agrees with the cascade ride-through
+    expect(inletTempAt(22, 10, 20, 20 + tau)).toBeCloseTo(22 + 30 * (1 - Math.exp(-1)), 5);
+    expect(inletTempAt(22, 10, 0, 1000)).toBeCloseTo(52, 3); // ΔTmax capped at 30 °C
+    expect(inletTempAt(22, 6, 0, 1000)).toBeCloseTo(40, 3);  // 3 °C per kW below the cap
     expect(inletTempAt(22, 31, 0, 5)).toBeGreaterThan(inletTempAt(22, 8, 0, 5));
+  });
+
+  it('agrees with the cascade: a 6 kW rack passes the 32 °C allowable limit near the 6-min ride-through mode', () => {
+    expect(inletTempAt(22, 6, 0, 3)).toBeLessThan(32);       // 3 min: warning band
+    expect(inletTempAt(22, 6, 0, 3)).toBeGreaterThan(27);
+    expect(inletTempAt(22, 6, 0, 6)).toBeGreaterThan(32);    // 6 min: past allowable
+    expect(inletTempAt(22, 31, 0, 2)).toBeGreaterThan(32);   // liquid-cooled GPU rack: ~2 min
   });
 });

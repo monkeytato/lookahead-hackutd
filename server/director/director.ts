@@ -18,8 +18,11 @@ import type { DirectorInput, DirectorResult, DirectorStep, DirectorUsage, Extern
 import type { ScanRequest } from '../../src/domain/rig/protocol';
 import { EXTERNAL_TOOL_DEFS, dispatchExternal, type ExternalServices } from './external';
 import { validateRecommendation } from './validate';
+import { EVALUATION_TOOL_DEFS, evaluationOutput } from './evaluation';
 
 export const MAX_TOOL_TURNS = 12;
+/** Wall-clock cap for an incident evaluation; past it the local planner (cross-entropy proposals) takes over. */
+export const EVALUATION_BUDGET_MS = 30000;
 /** When this many turns remain the director is told to wrap up; on the last turn `recommend` is forced. */
 export const WRAP_UP_TURNS = 2;
 const MAX_INVALID_JSON = 2;
@@ -64,9 +67,20 @@ Rules:
 - Use only asset, incident and edge ids that appear in tool results.
 - At most ${MAX_RUNS_PER_SESSION} engine runs and ${MAX_TOOL_TURNS} tool turns. Be concise.`;
 
+/** Added when the session evaluates one incident (stress tools present). */
+export const EVALUATION_PROMPT = `
+
+This session evaluates ONE incident. Extra tools: get_context, stress_digest, stress_test.
+Red-team method (you steer sampling; the engine computes every number):
+a. Call get_context and stress_digest. Read P(real), the response options, the failure digest (which families are over-represented among failing trials) and the EVSI table.
+b. Call stress_test with up to 6 stress regions: compound failures most likely to break the suggested response, written ONLY in the closed grammar from stress_digest. Bernoulli families take force {value: 1} or set_p {p ≤ 0.5}; continuous families take quantile_window {lo, hi} with 0 ≤ lo < hi ≤ 1 (a narrow tail such as lo 0.8, hi 1 — the full range 0–1 changes nothing); log-scale families also take scale {f in [0.25, 4]}. A good region is a rare compound (low prior probability) that the failure digest says is over-represented among failures. Proposals only steer which trials run; the engine re-weights every trial, so the estimate stays unbiased.
+c. Optionally refine once with a second stress_test (at most 2). Then call recommend.
+In recommend: name the dominant failure mode from the engine's region labels and shares, say what would rule it out (the EVSI scan), and which response is most robust. Every %, minute, rack count and "1 in N" must be copied from a stress-N or run-N result and cited by its id. Shifts are SIGNED (positive = later = more time). Never call a sensor broken, a rig trustworthy or equipment safe.`;
+
 function userPrompt(input: DirectorInput): string {
   return [
     `Scenario ${input.scenarioId}, now = scenario minute ${input.t}.`,
+    ...(input.evaluation ? [`Evaluating one ${input.evaluation.kind} incident; evidence posterior P(real) = ${input.evaluation.pReal.toFixed(3)} (engine). Log context is available through get_context.`] : []),
     input.question ? `Operator question: ${input.question}` : 'Operator question: what should we scan next, and what do we do first?',
     'Start with get_situation.',
   ].join('\n');
@@ -93,12 +107,15 @@ export async function runDirector(input: DirectorInput, opts: DirectorOptions = 
   if (typeof fetchImpl !== 'function') return tag(await runLocalPlanner(input, 'no fetch implementation available', started, rec.wrapped));
 
   const session = createSession(input); // throws DirectorInputError on a bad scenario / t
+  if (session.evaluation) cfg.budgetMs = Math.min(cfg.budgetMs, Number(env.NEMOTRON_EVAL_BUDGET_MS) || EVALUATION_BUDGET_MS);
   const steps: DirectorStep[] = [];
   const usage: DirectorUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0 };
   try {
     await agentLoop(cfg, session.input, fetchImpl, opts.maxTurns ?? MAX_TOOL_TURNS, started, usage, steps, session, rec.wrapped, cfg.model);
     const { recommendation, warnings } = validateRecommendation(session.recommendation!, session);
+    const evaluation = evaluationOutput(session);
     return tag({
+      evaluation,
       provider: 'nemotron',
       model: cfg.model,
       steps,
@@ -122,9 +139,10 @@ async function agentLoop(
   usage: DirectorUsage, steps: DirectorStep[], session: ReturnType<typeof createSession>,
   ext?: ExternalServices, model = 'nemotron',
 ): Promise<void> {
-  const tools = ext ? [...TOOL_DEFS, ...EXTERNAL_TOOL_DEFS] : TOOL_DEFS;
+  const evalTools = session.evaluation ? EVALUATION_TOOL_DEFS : session.context.events.length || session.context.notes.length ? EVALUATION_TOOL_DEFS.slice(0, 1) : [];
+  const tools = [...(ext ? [...TOOL_DEFS, ...EXTERNAL_TOOL_DEFS] : TOOL_DEFS), ...evalTools];
   const messages: ChatMessage[] = [
-    { role: 'system', content: thinkingPrefix(cfg) + SYSTEM_PROMPT },
+    { role: 'system', content: thinkingPrefix(cfg) + SYSTEM_PROMPT + (session.evaluation ? EVALUATION_PROMPT : '') },
     { role: 'user', content: userPrompt(input) },
   ];
   let invalidJson = 0;

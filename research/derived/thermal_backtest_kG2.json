@@ -1,0 +1,243 @@
+{
+ "wp179": [
+  {
+   "chillerRampS": 0,
+   "fittedLoopWaterM3": 0.25,
+   "fittedLoopLitresPerKw": 0.6,
+   "baselinePeakC": 40.8,
+   "publishedBaselinePeakC": 41.1,
+   "predicted5minRestartPeakC": 35.9,
+   "published5minRestartPeakC": 36.7,
+   "predicted4minRestartPeakC": 34.7,
+   "published4minRestartPeakC": 32.2,
+   "first60sRiseC": 4.4,
+   "lastMinuteAbove32_12minRestart": 18.2,
+   "publishedUnacceptableUntilMin": 17,
+   "sensitivityEps": [
+    {
+     "itEffectiveness": 0.6,
+     "peak12": 43,
+     "peak5": 37.3
+    },
+    {
+     "itEffectiveness": 0.9,
+     "peak12": 40.1,
+     "peak5": 35.4
+    }
+   ]
+  },
+  {
+   "chillerRampS": 240,
+   "fittedLoopWaterM3": 0.25,
+   "fittedLoopLitresPerKw": 0.6,
+   "baselinePeakC": 41.1,
+   "publishedBaselinePeakC": 41.1,
+   "predicted5minRestartPeakC": 36.5,
+   "published5minRestartPeakC": 36.7,
+   "predicted4minRestartPeakC": 35.6,
+   "published4minRestartPeakC": 32.2,
+   "first60sRiseC": 4.4,
+   "lastMinuteAbove32_12minRestart": 26.4,
+   "publishedUnacceptableUntilMin": 17,
+   "sensitivityEps": [
+    {
+     "itEffectiveness": 0.6,
+     "peak12": 43.3,
+     "peak5": 38.1
+    },
+    {
+     "itEffectiveness": 0.9,
+     "peak12": 40.3,
+     "peak5": 35.9
+    }
+   ]
+  }
+ ],
+ "wp179Cfd": {
+  "inferredItKw": 59,
+  "assumedRacks": 15,
+  "published": {
+   "30": 32.5,
+   "60": 34.7,
+   "300": 37.3
+  },
+  "model": [
+   {
+    "itEffectiveness": 0.7,
+    "t30": 31.9,
+    "t60": 34.3,
+    "t300": 40.1
+   },
+   {
+    "itEffectiveness": 0.8,
+    "t30": 31.8,
+    "t60": 34,
+    "t300": 39.1
+   },
+   {
+    "itEffectiveness": 0.9,
+    "t30": 31.7,
+    "t60": 33.7,
+    "t300": 38.3
+   }
+  ]
+ },
+ "densitySweepFansOff": [
+  {
+   "kwPerRack": 1.5,
+   "rateFirst30sCperMin": 7.2,
+   "s_to32": 400,
+   "s_to35": 1125,
+   "s_to40": null,
+   "s_to45": null
+  },
+  {
+   "kwPerRack": 2.5,
+   "rateFirst30sCperMin": 10.3,
+   "s_to32": 240,
+   "s_to35": 675,
+   "s_to40": 1405,
+   "s_to45": null
+  },
+  {
+   "kwPerRack": 5,
+   "rateFirst30sCperMin": 14.8,
+   "s_to32": 120,
+   "s_to35": 340,
+   "s_to40": 705,
+   "s_to45": 1065
+  },
+  {
+   "kwPerRack": 8,
+   "rateFirst30sCperMin": 17.2,
+   "s_to32": 75,
+   "s_to35": 215,
+   "s_to40": 440,
+   "s_to45": 670
+  },
+  {
+   "kwPerRack": 10,
+   "rateFirst30sCperMin": 18,
+   "s_to32": 60,
+   "s_to35": 170,
+   "s_to40": 355,
+   "s_to45": 535
+  },
+  {
+   "kwPerRack": 15,
+   "rateFirst30sCperMin": 19.2,
+   "s_to32": 40,
+   "s_to35": 115,
+   "s_to40": 235,
+   "s_to45": 355
+  },
+  {
+   "kwPerRack": 20,
+   "rateFirst30sCperMin": 20,
+   "s_to32": 30,
+   "s_to35": 85,
+   "s_to40": 180,
+   "s_to45": 270
+  }
+ ],
+ "fixtureLoads": {
+  "northAirKw": 190,
+  "southAirKw": 161,
+  "gpuKw": 124,
+  "hallAirKw": 351
+ },
+ "fixture_crah_pair_fans_off": {
+  "to27": {
+   "p10": 0.5,
+   "p50": 1,
+   "p90": 1.7,
+   "unit": "min"
+  },
+  "to32": {
+   "p10": 2,
+   "p50": 3.2,
+   "p90": 4.8,
+   "unit": "min"
+  },
+  "to35": {
+   "p10": 3.7,
+   "p50": 5.3,
+   "p90": 7.5,
+   "unit": "min"
+  },
+  "to40": {
+   "p10": 7.3,
+   "p50": 9.5,
+   "p90": 12.5,
+   "unit": "min"
+  },
+  "to45": {
+   "p10": 11,
+   "p50": 13.8,
+   "p90": 17.5,
+   "unit": "min"
+  }
+ },
+ "fixture_chillers_lost_fans_on": {
+  "to27": {
+   "p10": 3.2,
+   "p50": 5.3,
+   "p90": 8,
+   "unit": "min"
+  },
+  "to32": {
+   "p10": 9,
+   "p50": 12.5,
+   "p90": 17,
+   "unit": "min"
+  },
+  "to35": {
+   "p10": 12.3,
+   "p50": 16.7,
+   "p90": 22.3,
+   "unit": "min"
+  },
+  "to40": {
+   "p10": 18.2,
+   "p50": 23.7,
+   "p90": 31.3,
+   "unit": "min"
+  },
+  "to45": {
+   "p10": 23.7,
+   "p50": 30.5,
+   "p90": 40,
+   "unit": "min"
+  }
+ },
+ "currentThermalTs": [
+  {
+   "kw": 6,
+   "asymptoteC": 40,
+   "min_to32": 4.9,
+   "min_to35": 7.7,
+   "min_to40": null
+  },
+  {
+   "kw": 8,
+   "asymptoteC": 46,
+   "min_to32": 2.7,
+   "min_to35": 4,
+   "min_to40": 7
+  },
+  {
+   "kw": 10,
+   "asymptoteC": 52,
+   "min_to32": 1.8,
+   "min_to35": 2.5,
+   "min_to40": 4.1
+  },
+  {
+   "kw": 31,
+   "asymptoteC": 52,
+   "min_to32": 1.2,
+   "min_to35": 1.6,
+   "min_to40": 2.6
+  }
+ ]
+}

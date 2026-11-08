@@ -10,6 +10,8 @@
  * Scans, requests, rig events and approvals persist in this browser's localStorage only.
  */
 import { createAgentHub } from '../../server/agentHub';
+import { createWorkflowHub } from '../../server/workflowHub';
+import type { WorkState } from '../domain/workflow';
 import type { HttpLike } from '../../server/director/external';
 import type { PendingAction } from '../../server/director/types';
 import { DEFAULT_MODEL, DEFAULT_BASE_URL } from '../../server/director/nemotron';
@@ -24,6 +26,11 @@ export type BridgeListener = (event: string, data: unknown) => void;
 export interface LocalResponse { status: number; body: unknown }
 
 const STORE_KEY = 'lookahead.localBridge.v1';
+/** Same key the workflow client used for the static build, so earlier demo sessions still load. */
+const WORKFLOW_KEY = 'lookahead.workflow.v1';
+function loadWorkflow(): WorkState | undefined {
+  try { const w = JSON.parse(localStorage.getItem(WORKFLOW_KEY) ?? 'null') as WorkState | null; return w?.version === 1 ? { ...w, issues: w.issues ?? [], events: w.events ?? [], analyses: w.analyses ?? [] } : undefined; } catch { return undefined; }
+}
 const MAX_FRAMES = 900;
 
 const RIG_CMD = /^(flap (open|close)|valve (open|close)|fan \d{1,3} \d{1,3}|auto (on|off)|cal|ping)$/;
@@ -121,6 +128,16 @@ export function createLocalBridge() {
     http: offlineHttp,
   });
 
+  // The same workflow hub as the laptop bridge, in-page: verify_scan and evaluate work in the static
+  // artifact too (local planner + cross-entropy stress test, no network).
+  const workflow = createWorkflowHub({
+    initial: loadWorkflow(),
+    save: (s) => { try { localStorage.setItem(WORKFLOW_KEY, JSON.stringify(s)); } catch { /* storage blocked: keep in memory */ } broadcast('workflow', { revision: s.revision }); },
+    latest: () => frames.at(-1) ?? null,
+    scans: () => store.scans,
+    plan: async (input) => (await hub.plan(input)).result,
+  });
+
   function finishScan(id: string, reason: 'released' | 'auto'): Scan | null {
     if (!active || active.id !== id) return null;
     const a = active;
@@ -133,6 +150,7 @@ export function createLocalBridge() {
       deviceId: device.deviceId ?? 'unknown', firmware: device.firmware ?? 'unknown',
       startedAt: a.startedAt, endedAt, requestId: a.requestId,
     });
+    for (const c of workflow.simulatedTruth(a.assetId)?.after ?? []) sim.command(c);
     if (reason === 'auto' && scan.status === 'complete') scan.quality = [...scan.quality, 'auto_completed'];
     if (scan.status === 'complete') {
       store.scans.push(scan);
@@ -159,7 +177,11 @@ export function createLocalBridge() {
       if (path === '/api/director/latest') return ok(hub.latest());
       if (path === '/api/stage') return ok({ state: stage, now: Date.now(), screens: listeners.size });
       if (path.startsWith('/api/frames')) return ok(frames.slice(-120));
+      if (path === '/api/workflow') return ok(workflow.snapshot());
       return err(404, 'not found');
+    }
+    if (path === '/api/workflow') {
+      try { await workflow.command(b); return ok(workflow.snapshot()); } catch (e) { return err(400, (e as Error).message); }
     }
     if (path === '/api/stage') {
       const cmd = parseStageCommand(b.cmd);
@@ -182,6 +204,7 @@ export function createLocalBridge() {
       const startedAt = new Date().toISOString();
       const autoStop = window.setTimeout(() => finishScan(id, 'auto'), (TARGET_HOLD_S + 0.5) * 1000);
       active = { id, assetId, point, operator, requestId: str(b.requestId, 60) ?? undefined, startedAt, autoStop };
+      for (const c of workflow.simulatedTruth(assetId)?.before ?? []) sim.command(c); // simulated device responds to the injected incident
       broadcast('status', status());
       return ok({ id, startedAt, minHoldS: MIN_HOLD_S, targetHoldS: TARGET_HOLD_S });
     }

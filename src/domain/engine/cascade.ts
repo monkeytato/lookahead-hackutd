@@ -36,16 +36,15 @@ export interface CascadeOptions {
   fixes?: { assetId: ID; t: number }[];
 }
 
-export function runCascade(
-  facility: Facility,
-  faults: { assetId: ID; t: number }[],
-  opts: CascadeOptions,
-): Record<ID, ImpactClock> {
-  const runs = Math.max(1, opts.runs ?? 400);
-  const rand = mulberry32(opts.seed ?? 7);
-  const horizon = opts.horizonMin;
+/** Indexed dependency graph: nodes, edges, redundancy groups and a topological order (built once). */
+export interface CompiledGraph {
+  ids: ID[]; index: Map<ID, number>; edges: DependencyEdge[]; N: number; E: number;
+  from: Int32Array; to: Int32Array; groups: number[][][]; order: number[];
+}
 
-  const edges = [...facility.edges.filter((e) => e.confirmed), ...(opts.extraEdges ?? [])];
+/** Compile the graph runCascade uses: confirmed facility edges + extraEdges; extraIds adds fault/fix-only nodes. */
+export function compileGraph(facility: Facility, extraEdges: DependencyEdge[] = [], extraIds: ID[] = []): CompiledGraph {
+  const edges = [...facility.edges.filter((e) => e.confirmed), ...extraEdges];
 
   // ---- index nodes (assets plus any ids referenced only by edges / faults)
   const ids: ID[] = facility.assets.map((a) => a.id);
@@ -55,8 +54,7 @@ export function runCascade(
     return index.get(id)!;
   };
   for (const e of edges) { ensure(e.from); ensure(e.to); }
-  for (const f of faults) ensure(f.assetId);
-  for (const f of opts.fixes ?? []) ensure(f.assetId);
+  for (const id of extraIds) ensure(id);
   const N = ids.length;
   const E = edges.length;
   const from = Int32Array.from(edges, (e) => index.get(e.from)!);
@@ -92,6 +90,75 @@ export function runCascade(
     for (let n = 0; n < N; n++) if (!seen[n]) order.push(n);
   }
 
+  return { ids, index, edges, N, E, from, to, groups, order };
+}
+
+/**
+ * One Monte Carlo run over a compiled graph with the given edge delays, own-fault times and fix
+ * times (Infinity = none). Fills loss / rec / cause (see the header for the recovery rules).
+ */
+export function runOnce(g: CompiledGraph, delay: Float64Array, faultT: Float64Array, fixT: Float64Array, loss: Float64Array, rec: Float64Array, cause: Int32Array): void {
+  const { N, from, groups, order } = g;
+  // own faults: a fix at or before the fault prevents it; otherwise the fix ends it
+  for (let n = 0; n < N; n++) {
+    const own = faultT[n] < fixT[n] ? faultT[n] : Infinity;
+    loss[n] = own; rec[n] = own < Infinity ? fixT[n] : Infinity; cause[n] = own < Infinity ? -1 : -2;
+  }
+
+  // Relax to a fixpoint. Each node is recomputed from its own fault and its upstream groups.
+  for (let pass = 0; pass <= N; pass++) {
+    let changed = false;
+    for (const n of order) {
+      const gs = groups[n];
+      if (gs.length === 0) continue;
+      const own = faultT[n] < fixT[n] ? faultT[n] : Infinity;
+      let bestL = own;
+      let bestCause = own < Infinity ? -1 : -2;
+      // recovery = when every active cause has recovered (own fault: only a fix ends it)
+      let maxR = own < Infinity ? fixT[n] : -Infinity;
+      let gBest = Infinity;
+      let gBestEdge = -2;
+      for (const g of gs) {
+        let worst = -Infinity;
+        let worstEdge = -2;
+        let gR = Infinity;
+        for (const ei of g) {
+          const f = from[ei];
+          const arrive = loss[f] + delay[ei];
+          const t = arrive < rec[f] ? arrive : Infinity; // upstream back before the buffer ran out
+          if (t > worst) { worst = t; worstEdge = ei; }
+          if (rec[f] < gR) gR = rec[f]; // the group is back when its first member is
+        }
+        if (worst === Infinity || worst >= fixT[n]) continue;
+        gR = Math.min(gR, fixT[n]);
+        if (worst >= gR) continue;
+        if (gR > maxR) maxR = gR;
+        if (worst < gBest) { gBest = worst; gBestEdge = worstEdge; }
+      }
+      // Prefer the propagated cause on ties so paths show where the loss came from.
+      if (gBest < Infinity && gBest <= bestL) { bestL = gBest; bestCause = gBestEdge; }
+      const newR = bestL === Infinity ? Infinity : Math.min(maxR, fixT[n]);
+      if (bestL !== loss[n] || newR !== rec[n] || bestCause !== cause[n]) {
+        if (bestL !== loss[n] || newR !== rec[n]) changed = true;
+        loss[n] = bestL; rec[n] = newR; cause[n] = bestCause;
+      }
+    }
+    if (!changed) break;
+  }
+}
+
+export function runCascade(
+  facility: Facility,
+  faults: { assetId: ID; t: number }[],
+  opts: CascadeOptions,
+): Record<ID, ImpactClock> {
+  const runs = Math.max(1, opts.runs ?? 400);
+  const rand = mulberry32(opts.seed ?? 7);
+  const horizon = opts.horizonMin;
+
+  const g = compileGraph(facility, opts.extraEdges ?? [], [...faults.map((f) => f.assetId), ...(opts.fixes ?? []).map((f) => f.assetId)]);
+  const { ids, index, edges, N, E, from, to } = g;
+
   const faultT = new Float64Array(N).fill(Infinity);
   for (const f of faults) {
     const n = index.get(f.assetId)!;
@@ -121,52 +188,7 @@ export function runCascade(
       const d = edges[i].delay;
       delay[i] = sampleTriangular(rand, d.min, d.mode, d.max);
     }
-    // own faults: a fix at or before the fault prevents it; otherwise the fix ends it
-    for (let n = 0; n < N; n++) {
-      const own = faultT[n] < fixT[n] ? faultT[n] : Infinity;
-      loss[n] = own; rec[n] = own < Infinity ? fixT[n] : Infinity; cause[n] = own < Infinity ? -1 : -2;
-    }
-
-    // Relax to a fixpoint. Each node is recomputed from its own fault and its upstream groups.
-    for (let pass = 0; pass <= N; pass++) {
-      let changed = false;
-      for (const n of order) {
-        const gs = groups[n];
-        if (gs.length === 0) continue;
-        const own = faultT[n] < fixT[n] ? faultT[n] : Infinity;
-        let bestL = own;
-        let bestCause = own < Infinity ? -1 : -2;
-        // recovery = when every active cause has recovered (own fault: only a fix ends it)
-        let maxR = own < Infinity ? fixT[n] : -Infinity;
-        let gBest = Infinity;
-        let gBestEdge = -2;
-        for (const g of gs) {
-          let worst = -Infinity;
-          let worstEdge = -2;
-          let gR = Infinity;
-          for (const ei of g) {
-            const f = from[ei];
-            const arrive = loss[f] + delay[ei];
-            const t = arrive < rec[f] ? arrive : Infinity; // upstream back before the buffer ran out
-            if (t > worst) { worst = t; worstEdge = ei; }
-            if (rec[f] < gR) gR = rec[f]; // the group is back when its first member is
-          }
-          if (worst === Infinity || worst >= fixT[n]) continue;
-          gR = Math.min(gR, fixT[n]);
-          if (worst >= gR) continue;
-          if (gR > maxR) maxR = gR;
-          if (worst < gBest) { gBest = worst; gBestEdge = worstEdge; }
-        }
-        // Prefer the propagated cause on ties so paths show where the loss came from.
-        if (gBest < Infinity && gBest <= bestL) { bestL = gBest; bestCause = gBestEdge; }
-        const newR = bestL === Infinity ? Infinity : Math.min(maxR, fixT[n]);
-        if (bestL !== loss[n] || newR !== rec[n] || bestCause !== cause[n]) {
-          if (bestL !== loss[n] || newR !== rec[n]) changed = true;
-          loss[n] = bestL; rec[n] = newR; cause[n] = bestCause;
-        }
-      }
-      if (!changed) break;
-    }
+    runOnce(g, delay, faultT, fixT, loss, rec, cause);
 
     for (let n = 0; n < N; n++) {
       const lost = loss[n] <= horizon;

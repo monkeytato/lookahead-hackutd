@@ -1,0 +1,41 @@
+{
+  "_about": "Prior distributions for the ensemble engine, transcribed from the sources in research/SOURCES.md. 'beta' = Beta(a,b) fitted to failures/demands as Beta(f+0.5, n-f+0.5) (Jeffreys); use 'mean' if a point value is needed. Nuclear-fleet (INL) data are well-maintained equipment; widen toward the NREL Hong Kong set for poorly maintained sites.",
+  "on_demand": {
+    "generator_fail_to_start": { "mean": 2.22e-3, "p05": 1.53e-3, "p95": 3.02e-3, "beta": [136.5, 61227.5], "source": "INL/EXT-21-65055 EDG-FTS", "alt": { "navy_fehr": 1.3e-3, "nrc_fleet_via_nrel": 6.6e-3, "hong_kong_poor_maint": 1.65e-2, "ieee493_1997_via_WP75": 1.35e-2 } },
+    "generator_fail_to_load_run_first_hour_per_h": { "mean": 3.31e-3, "p05": 1.05e-3, "p95": 6.60e-3, "source": "INL EDG-FTLR" },
+    "ats_fail_to_transfer": { "mean": 1.33e-3, "p05": 4.93e-4, "p95": 2.51e-3, "beta": [4.5, 3373.5], "source": "INL ABT-FF" },
+    "breaker_fail_to_open_close": { "mean": 1.59e-3, "p05": 4.23e-5, "p95": 5.16e-3, "source": "INL CRB-FTOC" },
+    "ups_drops_load_on_transfer_to_battery": { "mean": 1.0e-3, "source": "Schneider WP75 Pbatfailed ('industry average', vendor model input)" },
+    "standby_crah_fail_to_start": { "mean": 2.11e-4, "p05": 1.55e-4, "p95": 2.74e-4, "beta": [33.5, 158833.5], "source": "INL AHU-FTS-NS", "plus_unavailable_test_maint": 2.5e-3 },
+    "chiller_fail_to_restart": { "mean": 5.09e-3, "p05": 9.52e-6, "p95": 2.05e-2, "beta": [66.5, 21071.5], "source": "INL CHL-FTS-NR", "plus_unavailable_test_maint": 2.0e-2 },
+    "pump_fail_to_start": { "mean": 5.88e-4, "p05": 1.09e-4, "p95": 1.38e-3, "source": "INL MDP-FTS-NS" }
+  },
+  "rates_per_hour": {
+    "chiller_fail_to_run": 3.87e-5,
+    "ahu_fail_to_run": 2.61e-6,
+    "hvac_fan_fail_to_run": 3.23e-6,
+    "pump_fail_to_run": 2.26e-6,
+    "battery_fail_to_operate": 4.05e-7,
+    "inverter": 3.49e-6,
+    "transformer": 1.93e-6,
+    "breaker_spurious_open": 1.73e-7,
+    "ats_spurious": 1.25e-7,
+    "manual_valve_small_external_leak": 8.67e-8,
+    "manual_valve_rupture": 6.07e-9,
+    "_source": "INL/EXT-21-65055 (2020 update), means"
+  },
+  "timing": {
+    "generator_start_to_transfer_s": { "nfpa110_type10_max": 10, "wp75_model": 190 },
+    "chiller_restart_to_full_capacity_min": { "standard": [10, 15], "quick_start": [2.5, 5], "sources": ["WP179", "Trane/Daikin vendor claims"] },
+    "dlc_cpu_throttle_after_pump_stop_s": { "full_load": [23, 34], "idle": [305, 353], "source": "Alkharabsheh 2017 (measured)" }
+  },
+  "battery": {
+    "end_of_life_capacity_fraction": 0.8,
+    "replace_trigger": "below 80 % of rated (IEEE 450/1188 practice, secondary source)",
+    "runtime_distribution_aged": "not found in a citable source; use SoH ~ U(0.6, 0.85) past service life as an explicit assumption"
+  },
+  "human": {
+    "therp_fail_to_diagnose": { "10min": 0.1, "20min": 0.01, "source": "NUREG/CR-1278 TRC via K-HRA papers (secondary)" },
+    "dc_response_times": "not found; use routing ETA + lognormal task time (assumption)"
+  }
+}

@@ -18,6 +18,7 @@ import { ageText, clockSeverity, clockText, deltaT, nextClock, openIncidents, ri
 import { FixPanel } from '../views/FixPanel';
 import { useControls } from '../app/controls';
 import { likelihood } from '../app/forecast';
+import { hasObservedFault } from '../state/liveForecast';
 import './mobile.css';
 
 type Tab = 'now' | 'rig' | 'director' | 'team';
@@ -30,14 +31,15 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function MobileApp({ route }: { route: string }) {
   const tab: Tab = (TABS.find((t) => t.id === route)?.id) ?? 'now';
-  const { state, run, scenario, visibleIncidents } = useOps();
+  // clocks are predictions: the forecast run, only faults observed or inferable by t (audit C1)
+  const { state, forecast, scenario, visibleIncidents } = useOps();
   const controls = useControls();
   const b = useBridge();
   const age = useFrameAge(b.latest);
   const dev = deviceLabel(b.status, b.online);
   const t = state.t;
 
-  const clocks = useMemo(() => visibleClocks(run.clocks, scenario, t), [run, scenario, t]);
+  const clocks = useMemo(() => visibleClocks(forecast.clocks, scenario, t), [forecast, scenario, t]);
   const open = useMemo(() => openIncidents(visibleIncidents), [visibleIncidents]);
   const ranked = useMemo(
     () => rankIncidents(open, { facility, clocks: Object.fromEntries(clocks.map((c) => [c.assetId, c])), now: t, tasks: state.tasks, employees: state.employees }),
@@ -108,8 +110,9 @@ export function MobileApp({ route }: { route: string }) {
 // ------------------------------------------------------------------- Now
 
 function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incidents: Incident[]; clocks: ReturnType<typeof visibleClocks> }) {
-  const { state, scenario } = useOps();
+  const { state, scenario, forecast } = useOps();
   const t = state.t;
+  const observed = hasObservedFault(forecast, t);
   const groups = useMemo(() => groupClocks(clocks, t), [clocks, t]);
   const lostNow = useMemo(() => clocks.filter((c) => c.p50 != null && c.p50 <= t).length, [clocks, t]);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -118,9 +121,9 @@ function NowTab({ ranked, incidents, clocks }: { ranked: PriorityResult[]; incid
   return (
     <>
       <section className="m-sec" aria-label="Impact clocks">
-        <h2 className="m-h">Time to impact <span className="m-h-sub">engine forecast, minutes</span></h2>
+        <h2 className="m-h">Time to impact <span className="m-h-sub">forecast from observed faults, minutes</span></h2>
         {groups.length === 0 ? (
-          <div className="m-quiet">{lostNow > 0 ? `No running clocks. ${lostNow} asset${lostNow === 1 ? ' is' : 's are'} already modeled as lost.` : t === 0 ? 'No running clocks yet — press play below to run the scenario.' : 'No running clocks. Every fresh reading is within limits.'}</div>
+          <div className="m-quiet">{lostNow > 0 ? `No running clocks. ${lostNow} asset${lostNow === 1 ? ' is' : 's are'} already modeled as lost.` : t === 0 && !observed ? 'No running clocks yet — press play below to run the scenario.' : !observed ? 'No observed fault · watching. A clock starts once a fault can be seen.' : 'No loss forecast from what is observed.'}</div>
         ) : (
           <div className="m-clocks">
             {groups.slice(0, 4).map((g) => {

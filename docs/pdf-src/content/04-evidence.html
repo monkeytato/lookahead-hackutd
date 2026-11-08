@@ -1,0 +1,35 @@
+<section class="chapter cont" id="s3-2">
+
+  <h2>3.2 Is the alarm real? The evidence posterior</h2>
+  <p><b>Idea.</b> An installed sensor says a rack inlet is hot; a technician holds a portable reference probe at the same point. Instead of a fixed threshold, CenterGuard asks which explanation makes the portable reading more likely under an explicit error budget, and turns that into a probability.</p>
+  <div class="eq">
+    <span class="row"><i>H</i><sub>real</sub>: the installed reading reflects a real condition at the point. &nbsp; <i>H</i><sub>meas</sub>: it is a measurement problem (offset, drift, placement, recirculation).</span>
+    <span class="row"><i>p</i>(<i>y</i> | <i>H</i><sub>real</sub>) = <i>t</i><sub>ν</sub>( <i>y</i> ; <i>x</i><sub>installed</sub>, √(σ<sub>inst</sub>² + σ<sub>ref</sub>² + σ<sub>sp</sub>²) )</span>
+    <span class="row"><i>p</i>(<i>y</i> | <i>H</i><sub>meas</sub>) = <i>t</i><sub>ν</sub>( <i>y</i> ; μ<sub>baseline</sub>, √(σ<sub>model</sub>² + σ<sub>ref</sub>² + σ<sub>sp</sub>²) )</span>
+    <span class="row">LR = <i>p</i>(<i>y</i> | <i>H</i><sub>real</sub>) / <i>p</i>(<i>y</i> | <i>H</i><sub>meas</sub>), &nbsp;&nbsp; P(real | <i>y</i>) = LR·π / (LR·π + 1 − π)</span>
+    <span class="note">y = mean of the portable hold; t<sub>ν</sub> = Student-t with ν = {{nu}}; μ<sub>baseline</sub> = mean of the neighbours' installed readings (same row, ±2 slots) or the model baseline; π = prior P(real). Implemented in <code>evidence.ts</code>.</span>
+  </div>
+  <p><b>Why Student-t and not a Gaussian.</b> Heavy tails stop one counterfeit or misplaced probe from producing absurd certainty. Counterfeit DS18B20 probes have been measured with offsets of −3.5 to +3 °C (Petrich <span class="tag m">M</span>); ν = 4 covers that.</p>
+  <div class="keep">
+  <div class="tcap">Error budget as built (<code>DEFAULT_ERROR_MODEL</code>)</div>
+  <table>
+    <thead><tr><th>Term</th><th class="n">1σ / value</th><th>Basis</th></tr></thead>
+    <tbody>
+      <tr><td>Installed sensor σ<sub>inst</sub></td><td class="n mono">{{sInst}} °C</td><td>0.5 (calibrated) to 1.5 °C (drifted), IEC 60751; IPMI bias up to +5 °C, Khalili 2019 <span class="tag m">M</span>; mid value <span class="tag a">A</span></td></tr>
+      <tr><td>Reference probe σ<sub>ref</sub></td><td class="n mono">{{sRef}} °C</td><td>DS18B20 ±0.5 °C (3σ), widened: the scan holds 10 s, the runbook asks 90 s <span class="tag a">A</span></td></tr>
+      <tr><td>Placement σ<sub>sp</sub></td><td class="n mono">{{sSp}} °C</td><td>Same height, 5 cm in front of the inlet: 0.3–0.5 °C (runbook RB-VERIFY-TEMP; Subzero <span class="tag v">V</span>)</td></tr>
+      <tr><td>Baseline σ<sub>model</sub></td><td class="n mono">{{sModel}} °C</td><td>Neighbour or zone baseline uncertainty <span class="tag a">A</span></td></tr>
+      <tr><td>Prior π</td><td class="n mono">0.5</td><td>No base rate of false inlet alarms found <span class="tag a">A</span>; also shown at 0.2 and 0.8</td></tr>
+      <tr><td>Floor water probe sensitivity / specificity</td><td class="n mono">0.95 / 0.98</td><td><span class="tag a">A</span></td></tr>
+      <tr><td>"Unsettled" probe slope</td><td class="n mono">0.2 °C/min</td><td><span class="tag a">A</span>; above it σ<sub>ref</sub> ≥ 1.5 × |slope|, flag <code>unsettled_lag</code>; degraded scan quality triples σ<sub>ref</sub></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <figure>
+    <!--CHART:evidence-->
+    <figcaption><b>Figure 3.</b> P(real) from the shipped <code>evidencePosterior</code> with the default error budget, an installed reading of 34.2 °C and a baseline of 23.5 °C, for three priors. Readings near the baseline favour a measurement problem; readings near the installed value favour a real condition; the middle stays inconclusive and asks for a repeat measurement.</figcaption>
+  </figure>
+  <p><b>Verdicts.</b> P ≥ 0.9 gives <code>corroborated_abnormal</code>, P ≤ 0.1 gives <code>measurement_disagreement</code>, anything between is <code>inconclusive</code>. The wording describes the measurements, never the equipment: the rationale never says a sensor is "broken" or a rack is "safe". <b>Measurability gate.</b> The rig's air probe cannot read chilled-water supply temperature, battery temperature, UPS autonomy, flow or pressure, and its vibration channel is a motion switch, not a mm/s sensor. For those the verdict is <code>inconclusive</code> with "not measurable by the portable rig", and P stays at the prior.</p>
+  <p><b>Worked example</b> (the dossier's inputs: σ<sub>inst</sub> 1, σ<sub>ref</sub> 0.3, σ<sub>sp</sub> 1.5, baseline 23.5 ± 1.5 °C, installed 34.2 °C). A portable reading of 24.0 °C gives P(real) = {{ev24}}, so the readings favour a measurement problem. A reading of 31.0 °C gives P(real) = {{ev31}} (LR ≈ {{lr31}}). The dossier's Gaussian sketch had quoted LR ≈ 110 for the second case; the Student-t likelihood is deliberately more cautious, and the test asserts P &gt; 0.88. For water, a wet probe at π = 0.5 gives P(real) = 0.95 / (0.95 + 0.02) = {{leakWet}}.</p>
+  <p class="small"><b>How P(real) moves the forecast.</b> P(real) becomes the probability of the hypothesis "the alarm is real" in the ensemble (§3.5), so a disagreeing portable reading lowers the predicted impact instead of being ignored. (Probe-settling extrapolation and a slope term in the likelihood are future work, §7.)</p>
+</section>

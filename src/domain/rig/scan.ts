@@ -91,8 +91,9 @@ export function summarizeScan(frames: StampedFrame[], meta: ScanMeta, opts: Scan
       '°C',
     ),
   );
-  put('reservoir_pct', statsOf(frameSeries(frames, (f) => clamp((f.reservoir_raw / fullRaw) * 100, 0, 100)), '%'));
-  put('floor_wet', statsOf(frameSeries(frames, (f) => (f.floor_raw >= wetRaw ? 1 : 0)), 'fraction'));
+  put('reservoir_pct', statsOf(frameSeries(frames, (f) => Number.isFinite(f.reservoir_raw) ? clamp((f.reservoir_raw / fullRaw) * 100, 0, 100) : null), '%'));
+  put('floor_wet', statsOf(frameSeries(frames, (f) => Number.isFinite(f.floor_raw) ? (f.floor_raw >= wetRaw ? 1 : 0) : null), 'fraction'));
+  put('vibration_detected', statsOf(frameSeries(frames, (f) => typeof f.vibrating === 'boolean' ? Number(f.vibrating) : null), 'fraction'));
   put('pack_v', statsOf(frameSeries(frames, (f) => f.pack_v), 'V'));
 
   // ---------------------------------------------------------------- quality flags

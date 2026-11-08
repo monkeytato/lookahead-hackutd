@@ -1,0 +1,31 @@
+source_id,case,condition,t_s,metric,value,unit,kind,url,note
+WP179,example1_baseline,"400 kW, 4 kW/rack, 30x24x4 m + 0.6 m plenum, gen at 60 s, chiller restart 12 min",peak,room_air_peak_c,41.1,C,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,"106 F read from Fig. 4 text; well-mixed model"
+WP179,example1_restart5,"as baseline, chiller restart 5 min",peak,room_air_peak_c,36.7,C,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,"98 F"
+WP179,example1_restart4,"as baseline, chiller restart 4 min",peak,room_air_peak_c,32.2,C,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,"'only marginally above' 90 F; value is the 90 F bound"
+WP179,example1_baseline,"as baseline",1020,room_air_back_below_limit_s,1020,s,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,"'unacceptably high until about 17 minutes'"
+WP179,cfd_no_recovery,"10x10.7x2.6 m + 0.61 m plenum, racks 1/2.5/6 kW, 545 kg/rack, no cooling recovery",0,room_air_c,28.4,C,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,"well-mixed temperature from CFD figure; IT load not legible"
+WP179,cfd_no_recovery,same,30,room_air_c,32.5,C,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,
+WP179,cfd_no_recovery,same,60,room_air_c,34.7,C,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,
+WP179,cfd_no_recovery,same,300,room_air_c,37.3,C,S,https://ecl-ips.com/wp-content/uploads/2014/01/apc-data-centre-temperature-rise-during-a-cooling-system-outage.pdf,
+OPENGATE2007,fans_off,"5 kW/cabinet, total cooling loss",189,time_to_thermal_shutdown_s,189,s,S?,https://www.fmlink.com/report-looks-at-impact-of-power-outages-on-data-centers/,"press report only; shutdown temperature not stated; UPS-vendor commissioned"
+OPENGATE2007,fans_off,">=10 kW/cabinet",60,time_to_thermal_shutdown_s_upper,60,s,S?,https://www.fmlink.com/report-looks-at-impact-of-power-outages-on-data-centers/,"'under one minute'"
+KHANKARI,fans_off_supply18C,"5 kW cabinet, supply 65 F",45,time_to_35C_s,45,s,S,https://www.upsite.com/blog/staying-cool-data-center-understanding-relationship-uptime-intake-temperatures/,"secondary; per-cabinet CFD, local recirculation"
+KHANKARI,fans_off_supply24C,"5 kW cabinet, supply 75 F",25,time_to_35C_s,25,s,S,https://www.upsite.com/blog/staying-cool-data-center-understanding-relationship-uptime-intake-temperatures/,secondary
+KHANKARI,fans_off_supply18C,"5 kW cabinet, supply 65 F",125,time_to_46C_s,125,s,S,https://www.upsite.com/blog/staying-cool-data-center-understanding-relationship-uptime-intake-temperatures/,secondary
+KHANKARI,fans_off_supply24C,"5 kW cabinet, supply 75 F",80,time_to_46C_s,80,s,S,https://www.upsite.com/blog/staying-cool-data-center-understanding-relationship-uptime-intake-temperatures/,secondary
+KHANKARI,fans_off,"1.5 kW cabinet",300,no_threshold_within_s,300,s,S,https://www.upsite.com/blog/staying-cool-data-center-understanding-relationship-uptime-intake-temperatures/,"no threshold reached in 5 min"
+TRADAT2018,chw_interrupt_contained,"74 kW IT, 215 m2 lab, CRAH blower running, d2950 external sensor",1080,time_to_27C_s,1080,s,M,https://par.nsf.gov/servlets/purl/10094472,"IPMI 600 s"
+TRADAT2018,chw_interrupt_contained,"same, d2950",2160,time_to_32C_s,2160,s,M,https://par.nsf.gov/servlets/purl/10094472,"IPMI 1320 s"
+TRADAT2018,chw_interrupt_contained,"same, d2950",3120,time_to_35C_s,3120,s,M,https://par.nsf.gov/servlets/purl/10094472,"IPMI 1800 s"
+TRADAT2018,chw_interrupt_contained,"same, R520",1200,time_to_27C_s,1200,s,M,https://par.nsf.gov/servlets/purl/10094472,"IPMI 540 s"
+TRADAT2018,chw_interrupt_contained,"same, R520",2760,time_to_32C_s,2760,s,M,https://par.nsf.gov/servlets/purl/10094472,"IPMI 1560 s"
+TRADAT2018,chw_interrupt_contained,"same, C2100",960,time_to_27C_s,960,s,M,https://par.nsf.gov/servlets/purl/10094472,"IPMI 960 s"
+TRADAT2018,chw_interrupt_contained,"same, C2100",2760,time_to_32C_s,2760,s,M,https://par.nsf.gov/servlets/purl/10094472,"IPMI 2040 s"
+ALKHARABSHEH2017,dlc_pumps_stopped,"secondary loop pumps off, 45 C coolant, 100 % CPU",23,time_to_cpu_throttle_s,23,s,M,https://par.nsf.gov/servlets/purl/10058025,
+ALKHARABSHEH2017,dlc_pumps_stopped,"45 C coolant, 25 % CPU",56,time_to_cpu_throttle_s,56,s,M,https://par.nsf.gov/servlets/purl/10058025,
+ALKHARABSHEH2017,dlc_pumps_stopped,"45 C coolant, idle",305,time_to_cpu_throttle_s,305,s,M,https://par.nsf.gov/servlets/purl/10058025,
+ALKHARABSHEH2017,dlc_pumps_stopped,"20 C coolant, 100 % CPU",34,time_to_cpu_throttle_s,34,s,M,https://par.nsf.gov/servlets/purl/10058025,
+ALKHARABSHEH2017,dlc_pumps_stopped,"20 C coolant, 25 % CPU",82,time_to_cpu_throttle_s,82,s,M,https://par.nsf.gov/servlets/purl/10058025,
+ALKHARABSHEH2017,dlc_pumps_stopped,"20 C coolant, idle",353,time_to_cpu_throttle_s,353,s,M,https://par.nsf.gov/servlets/purl/10058025,
+INTEL2007,airflow_stopped_high_density,"10-25 kW/cabinet, calculated",18,time_to_40.6C_s,18,s,S,https://www.intel.com/content/dam/doc/white-paper/intel-it-thermal-storage-system-provides-emergency-data-center-cooling-paper.pdf,"105 F in 18 s"
+INTEL2007,airflow_stopped_high_density,"10-25 kW/cabinet, calculated",35,time_to_57.2C_s,35,s,S,https://www.intel.com/content/dam/doc/white-paper/intel-it-thermal-storage-system-provides-emergency-data-center-cooling-paper.pdf,"135 F in 35 s"

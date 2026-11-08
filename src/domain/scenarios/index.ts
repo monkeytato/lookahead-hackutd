@@ -14,10 +14,13 @@ import type { ScenarioRun } from '../engine/simulate';
 import type { Incident, Scenario } from '../types';
 import { randomScenario } from './random';
 import { realScenarios } from './real';
+import { incidentScenarios } from './incident';
 
 export { randomScenario, generateRandomScenario, TEMPLATES, seedOf } from './random';
 export type { TemplateKey } from './random';
 export { realScenarios } from './real';
+export { incidentScenarios, incidentModel, neighbourBaseline } from './incident';
+export type { IncidentKind, IncidentModel } from './incident';
 
 export interface ScenarioInfo { id: string; name: string; kind: NonNullable<Scenario['kind']>; headline: string; basis: string }
 
@@ -26,7 +29,7 @@ const byId = new Map<string, Scenario>([...fixtureScenarios, ...realScenarios].m
 /** Any scenario id → Scenario. Unknown ids fall back to the first fixture scenario. */
 export function getScenario(id: string): Scenario {
   if (isRandomScenario(id)) return randomScenario(id);
-  return byId.get(id) ?? fixtureScenarios[0];
+  return byId.get(id) ?? incidentScenarios.find((s) => s.id === id) ?? fixtureScenarios[0];
 }
 
 /** Scenarios a presenter can pick from a list: the default demo first, then real incidents, then what-ifs. */

@@ -118,9 +118,13 @@ const edges: DependencyEdge[] = [
   e('UPS-A', 'PDU-A2', 'powers', [0, 0, 0], 'Direct', 'rating'),
   e('UPS-B', 'PDU-B1', 'powers', [0, 0, 0], 'Direct', 'rating'),
   e('UPS-B', 'PDU-B2', 'powers', [0, 0, 0], 'Direct', 'rating'),
-  // mechanical load is generator-backed, not UPS-backed
-  ...['CH-1', 'CH-2', 'P-1', 'P-2', 'CRAH-1', 'CRAH-2', 'CRAH-3', 'CRAH-4', 'CDU-1'].map((m) =>
+  // mechanical load is generator-backed, not UPS-backed …
+  ...['CH-1', 'CH-2', 'P-1', 'P-2', 'CRAH-1', 'CRAH-2', 'CRAH-3', 'CRAH-4'].map((m) =>
     e('ATS-1', m, 'powers', [0, 0, 0], 'Mechanical load on generator-backed bus (no UPS)', 'rating')),
+  // … except the CDU: cold plates have seconds-to-minutes of margin, so liquid-cooling CDU pumps are
+  // normally on UPS (A and B feeds). It still depends on chilled water from P-1/P-2 below.
+  e('UPS-A', 'CDU-1', 'powers', [0, 0, 0], 'CDU pumps on UPS, side A (common practice for direct liquid cooling — assumption)', 'assumption', 'cdu-pwr'),
+  e('UPS-B', 'CDU-1', 'powers', [0, 0, 0], 'CDU pumps on UPS, side B (common practice for direct liquid cooling — assumption)', 'assumption', 'cdu-pwr'),
   // chilled water
   ...['P-1', 'P-2'].flatMap((p) => ['CH-1', 'CH-2'].map((c) =>
     e(c, p, 'cools', [8, 15, 25], 'Chilled-water loop thermal mass — assumption', 'assumption', `chw-${p}`))),
@@ -348,6 +352,10 @@ export function seedReadings(): Reading[] {
     out.push({ id: `R-${++n}`, assetId: r.id, metric: 'inlet_temp_c', value: +base.toFixed(1), unit: '°C', t: staleRowC ? -19 : -1, source: 'installed', expectedIntervalMin: 5 });
   }
   out.push({ id: `R-${++n}`, assetId: 'A-11', metric: 'inlet_temp_c', value: 34.2, unit: '°C', t: 0, source: 'installed', expectedIntervalMin: 5 });
+  // humidity is a modelled demo value, not a fitted probe: labelled simulated like every other generated reading
+  out.push({ id: `R-${++n}`, assetId: 'A-11', metric: 'humidity_rh', value: 47, unit: '%', t: 0, source: 'simulated', expectedIntervalMin: 10 });
+  out.push({ id: `R-${++n}`, assetId: 'CRAH-2', metric: 'humidity_rh', value: 45, unit: '%', t: 0, source: 'simulated', expectedIntervalMin: 10 });
+  out.push({ id: `R-${++n}`, assetId: 'UPS-A', metric: 'humidity_rh', value: 44, unit: '%', t: 0, source: 'simulated', expectedIntervalMin: 10 });
   for (const c of ['CRAH-1', 'CRAH-3', 'CRAH-4']) out.push({ id: `R-${++n}`, assetId: c, metric: 'vibration_mm_s', value: 1.9 + (c.charCodeAt(5) % 3) / 10, unit: 'mm/s', t: -3, source: 'installed', expectedIntervalMin: 15 });
   out.push({ id: `R-${++n}`, assetId: 'CRAH-2', metric: 'vibration_mm_s', value: 6.4, unit: 'mm/s', t: 1, source: 'installed', expectedIntervalMin: 15 });
   out.push({ id: `R-${++n}`, assetId: 'UPS-A', metric: 'ups_autonomy_min', value: 13, unit: 'min', t: -1, source: 'installed', expectedIntervalMin: 5 });

@@ -1,13 +1,16 @@
 /**
  * Phone remote (#/stage): stage the demo from a second phone. Every button sends a stage command;
  * the laptop/projector (#/present, #/app) and every other screen follow. Nothing here computes
- * its own numbers: prediction lines and "saves N racks" come from the engine runs.
+ * its own numbers: prediction lines and "saves N racks" come from the engine runs. Every prediction
+ * here uses the store's FORECAST run (only faults observed or inferable by t, audit C1); the faults
+ * the script still has in store are listed separately, with their priors, for the presenter.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { facility, seedReadings } from '../domain/fixture';
 import { fixOptionsFor, makeFix, predictFix, type FixContext, type FixOption, type FixPrediction } from '../domain/engine';
 import { listScenarios, randomScenarioId } from '../domain/scenarios';
 import { useOps, wallClock } from '../state/store';
+import { hasObservedFault, topHypotheses } from '../state/liveForecast';
 import { useStage, type StageLink } from './StageProvider';
 import { SPEEDS } from './protocol';
 import { fmtMin, nameOf, predictionSummary, problemList, summaryLines, type Problem } from './remoteModel';
@@ -26,13 +29,16 @@ const LINK_HINT: Record<StageLink, string> = {
 
 export function StageRemote() {
   const { state: stage, send, t, link, scenario, others } = useStage();
-  const { run, visibleIncidents } = useOps();
+  const { forecast, visibleIncidents } = useOps();
   const H = scenario.horizonMin;
   const ended = t >= H;
 
   const real = useMemo(() => listScenarios().sort((a, b) => (a.kind === 'real' ? 0 : 1) - (b.kind === 'real' ? 0 : 1)), []);
-  const problems = useMemo(() => problemList(visibleIncidents, run, t), [visibleIncidents, run, t]);
-  const prediction = useMemo(() => predictionSummary(run, t, stage.lookaheadMin, H), [run, t, stage.lookaheadMin, H]);
+  const problems = useMemo(() => problemList(visibleIncidents, forecast, t), [visibleIncidents, forecast, t]);
+  const prediction = useMemo(() => predictionSummary(forecast, t, stage.lookaheadMin, H), [forecast, t, stage.lookaheadMin, H]);
+  const observed = hasObservedFault(forecast, t);
+  const minute = Math.floor(t);
+  const scripted = useMemo(() => topHypotheses(facility, scenario, minute), [scenario, minute]);
 
   const [confirmReset, setConfirmReset] = useState(false);
   useEffect(() => {
@@ -117,9 +123,20 @@ export function StageRemote() {
             ))}
           </div>
           <ul className="st-pred">
-            {summaryLines(prediction, t, stage.lookaheadMin).map((l) => <li key={l}>{l}</li>)}
+            {summaryLines(prediction, t, stage.lookaheadMin, observed).map((l) => <li key={l}>{l}</li>)}
           </ul>
-          <p className="st-fine">Engine p50 clocks over 400 Monte Carlo runs · simulated facility</p>
+          <p className="st-fine">Forecast from observed faults only · engine p50 clocks over 400 Monte Carlo runs · simulated facility</p>
+          {scripted.length > 0 && (
+            <>
+              <h3 className="st-h3">Scripted, not yet observable</h3>
+              <ul className="st-pred">
+                {scripted.map((h) => (
+                  <li key={h.id}>{h.label} <span className="mono">· P ≈ {h.prior.toPrecision(2)}</span> <span className="st-fine">({h.basisKind === 'published' ? 'published rate' : 'assumption'})</span></li>
+                ))}
+              </ul>
+              <p className="st-fine">Presenter only: the scenario script still has these. The forecast leaves them out until they can be seen.</p>
+            </>
+          )}
         </section>
 
         <FixSection problems={problems} />
@@ -132,8 +149,9 @@ export function StageRemote() {
 
 function FixSection({ problems }: { problems: Problem[] }) {
   const { state: stage, send, t, scenario } = useStage();
-  const { run } = useOps();
-  const ctx: FixContext = useMemo(() => ({ facility, scenario, seedReadings: seedReadings(), fixes: stage.fixes, t, run }), [scenario, stage.fixes, t, run]);
+  const { forecast: run } = useOps();
+  // options and savings from what is observed at t (forecast mode), as on the desktop and the phone
+  const ctx: FixContext = useMemo(() => ({ facility, scenario, seedReadings: seedReadings(), fixes: stage.fixes, t, run, mode: 'forecast' }), [scenario, stage.fixes, t, run]);
   const options = useMemo(() => {
     const ordered = new Set(ctx.fixes.map((f) => `${f.action}|${f.assetId}`));
     const out: { problem: Problem; options: FixOption[] }[] = [];
@@ -185,7 +203,7 @@ function FixSection({ problems }: { problems: Problem[] }) {
               <li key={f.id}>
                 <span>
                   <span className="st-fix-label">{f.label}</span>
-                  <span className="st-fix-meta mono">{nameOf(f.assetId)} · {f.effectiveAt <= t ? 'in effect' : `takes effect at T+${Math.round(f.effectiveAt)}`}</span>
+                  <span className="st-fix-meta mono">{nameOf(f.assetId)} · {f.effectiveAt <= t ? 'in effect' : `takes effect at T+${Math.floor(f.effectiveAt)}`}</span>
                 </span>
                 <button type="button" className="st-btn st-small" onClick={() => send({ type: 'unfix', fixId: f.id })}>Cancel</button>
               </li>

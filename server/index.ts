@@ -12,6 +12,8 @@
  * Binds to 127.0.0.1 unless BRIDGE_HOST is set. No auth: a LAN demo only, never expose publicly.
  */
 import http from 'node:http';
+import { createWorkflowHub } from './workflowHub';
+import type { WorkState } from '../src/domain/workflow';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -27,6 +29,7 @@ import { summarizeScan } from '../src/domain/rig/scan';
 import { diagnose, followUp } from '../src/domain/rig/diagnose';
 import { createAgentHub } from './agentHub';
 import { createStageHub } from './stageHub';
+import { phoneFixCommand, phoneRandomCommand, phoneSummary } from './phoneSummary';
 import type { StageState } from '../src/stage/protocol';
 import type { PendingAction } from './director/types';
 import { loadEnv } from './env';
@@ -46,7 +49,7 @@ const MAX_FRAMES = 900; // 15 min at 1 Hz
 let framesReceived = 0;
 let badLines = 0;
 
-interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[]; stage?: StageState }
+interface Store { scans: Scan[]; requests: ScanRequest[]; events: RigEvent[]; actions: PendingAction[]; stage?: StageState; workflow?: WorkState }
 const store: Store = loadStore();
 
 let device: BridgeStatus['device'] = { mode: 'disconnected', port: null, deviceId: null, firmware: null, lastFrameAt: null, framesReceived: 0 };
@@ -211,6 +214,7 @@ function finishScan(id: string, reason: 'released' | 'auto'): Scan | null {
     deviceId: device.deviceId ?? 'unknown', firmware: device.firmware ?? 'unknown',
     startedAt: a.startedAt, endedAt, requestId: a.requestId,
   });
+  if (sim) for (const c of workflow.simulatedTruth(a.assetId)?.after ?? []) sim.command(c);
   if (reason === 'auto' && scan.status === 'complete') scan.quality = [...scan.quality, 'auto_completed'];
   if (scan.status === 'complete') {
     store.scans.push(scan);
@@ -256,6 +260,20 @@ const stage = createStageHub({
   screens: () => clients.size,
 });
 
+const phonePayload = () => phoneSummary(stage.get(), Date.now(), {
+  latestFrame: () => frames.at(-1) ?? null,
+  deviceMode: () => device.mode,
+  director: { configured: !!process.env.NVIDIA_API_KEY, model: process.env.NEMOTRON_MODEL || DEFAULT_MODEL },
+});
+
+const workflow = createWorkflowHub({
+  initial: store.workflow,
+  save: (s) => { store.workflow = s; save(); broadcast('workflow', { revision: s.revision }); },
+  latest: () => frames.at(-1) ?? null,
+  scans: () => store.scans,
+  plan: async (input) => (await hub.plan(input)).result,
+});
+
 // ------------------------------------------------------------------ http
 
 function json(res: http.ServerResponse, code: number, body: unknown) {
@@ -285,6 +303,11 @@ const server = http.createServer(async (req, res) => {
       req.on('close', () => { clearInterval(ka); clients.delete(res); stage.announce(); });
       return;
     }
+    if (req.method === 'GET' && p === '/api/workflow') return json(res, 200, workflow.snapshot());
+    if (req.method === 'POST' && p === '/api/workflow') {
+      try { await workflow.command(await readBody(req, 16_000)); return json(res, 200, workflow.snapshot()); }
+      catch (e) { return json(res, 400, { error: (e as Error).message }); }
+    }
     if (req.method === 'GET' && p === '/api/status') return json(res, 200, { ...status(), badLines });
     if (req.method === 'GET' && p === '/api/frames') return json(res, 200, frames.slice(-Math.min(900, Number(url.searchParams.get('n') ?? 120))));
     if (req.method === 'GET' && p === '/api/scans') return json(res, 200, store.scans.slice(-100));
@@ -306,6 +329,8 @@ const server = http.createServer(async (req, res) => {
       // server-side cap: the scan completes at TARGET_HOLD_S even if the client never releases
       const autoStop = setTimeout(() => finishScan(id, 'auto'), (TARGET_HOLD_S + 0.5) * 1000);
       active = { id, assetId, point, operator, requestId: str(b.requestId, 60) ?? undefined, startedAt, autoStop };
+      // simulated device only: respond to the scanned asset's injected demo incident (audit C4)
+      if (sim) for (const c of workflow.simulatedTruth(assetId)?.before ?? []) sim.command(c);
       broadcast('status', status());
       return json(res, 200, { id, startedAt, minHoldS: MIN_HOLD_S, targetHoldS: TARGET_HOLD_S });
     }
@@ -355,6 +380,19 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req, 16_000);
       const r = stage.command(b.cmd);
       return r.ok ? json(res, 200, r.payload) : json(res, 400, { error: r.error });
+    }
+    // ---- native iPhone app (ios/): one compact payload; the engine runs here
+    if (req.method === 'GET' && p === '/api/phone') return json(res, 200, phonePayload());
+    if (req.method === 'POST' && p === '/api/phone/random') {
+      const r = stage.command(phoneRandomCommand());
+      return r.ok ? json(res, 200, phonePayload()) : json(res, 400, { error: r.error });
+    }
+    if (req.method === 'POST' && p === '/api/phone/fix') {
+      const b = await readBody(req, 4_000);
+      const c = phoneFixCommand(stage.get(), Date.now(), b);
+      if (!c.ok) return json(res, 400, { error: c.error });
+      const r = stage.command(c.cmd);
+      return r.ok ? json(res, 200, phonePayload()) : json(res, 400, { error: r.error });
     }
     if (req.method === 'GET' && p === '/api/director/latest') return json(res, 200, hub.latest());
     if (req.method === 'GET' && p === '/api/actions') return json(res, 200, store.actions.slice(-50));

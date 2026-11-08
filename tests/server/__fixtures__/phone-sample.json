@@ -1,0 +1,103 @@
+{
+  "now": 1800000000000,
+  "stage": {
+    "scenarioId": "scn-riser-leak",
+    "headline": "A chilled-water leak drifts toward the UPS and battery rooms",
+    "kind": "real",
+    "basis": "Leak path adapted from the Google Cloud europe-west9 (Paris) incident report, April 2023: 3 h 22 min between leak and battery-room awareness. Timeline compressed and simulated.",
+    "t": 14,
+    "horizon": 60,
+    "wallClock": "02:24",
+    "playing": false,
+    "speed": 1,
+    "autoPause": true,
+    "lookaheadMin": 0,
+    "last": "Jumped to T+14"
+  },
+  "forecast": {
+    "firstRackLossIn": 30,
+    "firstRackAssetId": "A-01",
+    "racksTotal": 48,
+    "racksLost": 0,
+    "racksAtRisk": 48,
+    "assetsLost": 2,
+    "servicesAtRisk": 5,
+    "savedByFixes": 0
+  },
+  "clocks": [
+    {
+      "assetId": "UPS-B",
+      "name": "UPS B (500 kVA)",
+      "inMin": 1,
+      "p10In": 1,
+      "p90In": 1,
+      "severity": "critical"
+    },
+    {
+      "assetId": "PDU-B1",
+      "name": "PDU B1 (rows A–B, side B)",
+      "inMin": 1,
+      "p10In": 1,
+      "p90In": 1,
+      "severity": "critical"
+    },
+    {
+      "assetId": "PDU-B2",
+      "name": "PDU B2 (rows C–D, side B)",
+      "inMin": 1,
+      "p10In": 1,
+      "p90In": 1,
+      "severity": "critical"
+    }
+  ],
+  "problems": [
+    {
+      "id": "INC-1045",
+      "title": "Water reached BATT-A — battery/UPS exposure",
+      "severity": "critical",
+      "assetId": "BATT-A",
+      "openedAt": 12,
+      "fixes": [
+        {
+          "action": "transfer_ups",
+          "assetId": "UPS-B",
+          "label": "Transfer UPS-B load to the healthy path",
+          "delayMin": 3,
+          "savesRacks": 44,
+          "savesAssets": 45
+        }
+      ]
+    },
+    {
+      "id": "INC-1044",
+      "title": "Possible leak — loop make-up flow +6 %",
+      "severity": "warning",
+      "assetId": "PIPE-L2",
+      "openedAt": 11,
+      "fixes": [
+        {
+          "action": "isolate_valve",
+          "assetId": "PIPE-L2",
+          "label": "Close the isolation valves on PIPE-L2",
+          "delayMin": 4,
+          "savesRacks": 48,
+          "savesAssets": 61
+        }
+      ]
+    }
+  ],
+  "fixes": [],
+  "rig": {
+    "mode": "simulated",
+    "inletC": 22.6,
+    "outletC": 31,
+    "referenceC": 22.5,
+    "deltaC": 8.4,
+    "floorWet": false,
+    "ageS": 0.5
+  },
+  "director": {
+    "configured": false,
+    "model": "nvidia/nemotron-3.5-lightning-30b-a3b"
+  }
+}

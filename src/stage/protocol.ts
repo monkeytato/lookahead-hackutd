@@ -75,7 +75,7 @@ export function applyStageCommand(s: StageState, cmd: StageCommand, horizonMin: 
     case 'autopause':
       return { ...base, autoPause: cmd.on, last: cmd.on ? 'Pause on new incidents: on' : 'Pause on new incidents: off' };
     case 'seek':
-      return { ...base, t0: clamp(cmd.t, 0, horizonMin), at: now, last: `Jumped to T+${Math.round(cmd.t)}` };
+      return { ...base, t0: clamp(cmd.t, 0, horizonMin), at: now, last: `Jumped to T+${Math.floor(cmd.t)}` };
     case 'jump':
       return { ...base, t0: clamp(t + cmd.dt, 0, horizonMin), at: now, last: `${cmd.dt > 0 ? '+' : ''}${cmd.dt} min` };
     case 'speed':

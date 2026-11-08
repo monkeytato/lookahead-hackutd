@@ -24,6 +24,7 @@ import { freshness, latestReadings, maxSeverity, severityFor } from './readings'
 import { inletTempAt } from './thermal';
 import { simulateWater, waterArrival } from './water';
 import { hazardArrival, hazardFrameAt } from './hazard';
+import { forecastScenario, type AssumedFault } from './observable';
 
 export interface ScenarioRunInput {
   facility: Facility;
@@ -36,6 +37,14 @@ export interface ScenarioRunInput {
   /** Monte Carlo runs (default 400) and seed (default 7) */
   runs?: number;
   seed?: number;
+  /**
+   * 'script' (default): replay every scripted fault — the WORLD (stage, replay).
+   * 'forecast': clocks use only what is observed or inferable by `forecastAt` plus the opted-in
+   * `hypotheses` (ids from scriptedHypotheses). readingsAt / visualAt stay script-driven up to forecastAt.
+   */
+  mode?: 'script' | 'forecast';
+  forecastAt?: number;
+  hypotheses?: string[];
 }
 
 export interface ScenarioRun {
@@ -51,6 +60,8 @@ export interface ScenarioRun {
   hazardAt(t: number): HazardFrame[];
   /** Asset id → minute a fix takes effect on it */
   restoredAt: Record<ID, number>;
+  /** Faults the clocks rest on, and why (observed, opted-in hypothesis, or scenario script) */
+  assumedFaults: AssumedFault[];
 }
 
 const UNITS: Partial<Record<Reading['metric'], string>> = {
@@ -61,7 +72,14 @@ const INTERVAL: Partial<Record<Reading['metric'], number>> = { vibration_mm_s: 1
 const FRESH_RANK: Record<Freshness, number> = { fresh: 0, stale: 1, missing: 2 };
 
 export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
-  const { facility, scenario, seedReadings } = input;
+  const { facility, seedReadings } = input;
+  let scenario = input.scenario;
+  let assumedFaults: AssumedFault[] = scenario.faults.map((f) => ({ ...f, basis: 'script', label: `${f.assetId} fault from the scenario script` }));
+  if (input.mode === 'forecast') {
+    const fc = forecastScenario(facility, scenario, input.forecastAt ?? 0, input.hypotheses ?? []);
+    scenario = fc.scenario;
+    assumedFaults = fc.assumed;
+  }
   const horizon = scenario.horizonMin;
 
   // ---- fixes: asset → earliest effective minute
@@ -84,9 +102,10 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
     const leak = stop < Infinity ? { ...scenario.leak, stopT: stop } : scenario.leak;
     water = simulateWater(facility, leak, horizon);
     arrival = waterArrival(water, facility);
-    wetFaults.push({ assetId: sourceId, t: leak.startT });
+    // the source itself fails when it has lost enough water (a fix before then prevents it)
+    wetFaults.push({ assetId: sourceId, t: leak.startT + (leak.sourceFailsAfterMin ?? 0) });
     for (const [assetId, t] of Object.entries(arrival)) {
-      if (t > horizon) continue;
+      if (t > horizon || assetId === sourceId) continue; // the source fails by its own rule above
       wetFaults.push({ assetId, t });
       const d = Math.max(0, t - leak.startT);
       derivedEdges.push({
@@ -285,7 +304,7 @@ export function simulateScenario(input: ScenarioRunInput): ScenarioRun {
     return out;
   };
 
-  return { clocks, water, waterArrival: arrival, derivedEdges, readingsAt, visualAt, stepsUntil, hazardAt, restoredAt };
+  return { clocks, water, waterArrival: arrival, derivedEdges, readingsAt, visualAt, stepsUntil, hazardAt, restoredAt, assumedFaults };
 }
 
 /** The asset a leak comes from: nearest pipe or coolant distribution unit to the leak point. */

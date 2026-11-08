@@ -38,7 +38,10 @@ export interface Forecast {
   servicesAtRisk: { id: ID; name: string; criticality: number }[];
 }
 
-/** "If nothing changes": what the run predicts by the end of the horizon (p50). */
+/**
+ * "If nothing changes": what the run predicts by the end of the horizon (p50). Live views pass the
+ * store's `forecast` run (observed faults only, audit C1), never the script run.
+ */
 export function forecast(run: ScenarioRun, scenario: Scenario, facility: Facility, t: number): Forecast {
   const H = scenario.horizonMin;
   const byId = new Map(facility.assets.map((a) => [a.id, a]));
@@ -62,7 +65,7 @@ export function forecast(run: ScenarioRun, scenario: Scenario, facility: Facilit
   };
 }
 
-const atText = (v: number | null) => (v == null ? 'none within the horizon' : `T+${Math.round(v)}`);
+const atText = (v: number | null) => (v == null ? 'none within the horizon' : `T+${Math.floor(v)}`);
 
 /** "Saves 12 racks · first rack loss moves from T+44 to none" */
 export function describeFix(p: FixPrediction): { headline: string; detail: string; helps: boolean } {
@@ -96,4 +99,22 @@ export function leakVisible(scenario: Scenario, t: number): boolean {
   const signs = scenario.steps.filter((s) => s.kind !== 'fault' && s.t >= leak.startT).map((s) => s.t);
   const at = signs.length ? Math.min(...signs) : leak.startT;
   return t >= at;
+}
+
+/**
+ * One line for a problem card: the soonest loss this incident causes.
+ * "Rack loss in 7 min" when a rack is on its clock, else "UPS-A lost in 4 min", "3 racks lost", or "No loss from this alone".
+ */
+export function impactLine(incClocks: ImpactClock[], facility: Facility, now: number, horizon: number): { text: string; minutes: number | null; lost: boolean; assetId?: ID } {
+  const isRack = (id: ID) => facility.assets.find((a) => a.id === id)?.type === 'rack';
+  const timed = incClocks.filter((c) => c.p50 != null);
+  const ahead = timed.filter((c) => c.p50! > now).sort((a, b) => a.p50! - b.p50!);
+  const rackAhead = ahead.find((c) => isRack(c.assetId));
+  const racksLost = timed.filter((c) => c.p50! <= now && isRack(c.assetId)).length;
+  if (rackAhead) return { text: `Rack loss in ${Math.max(1, Math.round(rackAhead.p50! - now))} min`, minutes: rackAhead.p50! - now, lost: false, assetId: rackAhead.assetId };
+  if (ahead[0]) return { text: `${ahead[0].assetId} lost in ${Math.max(1, Math.round(ahead[0].p50! - now))} min`, minutes: ahead[0].p50! - now, lost: false, assetId: ahead[0].assetId };
+  if (racksLost > 0) return { text: `${racksLost} rack${racksLost === 1 ? '' : 's'} lost`, minutes: 0, lost: true };
+  const lostAsset = timed.filter((c) => c.p50! <= now).sort((a, b) => a.p50! - b.p50!)[0];
+  if (lostAsset) return { text: `${lostAsset.assetId} lost`, minutes: 0, lost: true, assetId: lostAsset.assetId };
+  return { text: `No loss from this alone (${horizon === 60 ? 'next hour' : `next ${horizon} min`})`, minutes: null, lost: false };
 }

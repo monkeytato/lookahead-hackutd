@@ -15,29 +15,36 @@ const SEED = seedReadings();
 const key = (o: FixOption) => `${o.action}|${o.assetId}`;
 
 export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: boolean }) {
-  const { state, dispatch, scenario, run } = useOps();
+  // options and savings are predictions: the forecast run, in forecast mode (audit C1)
+  const { state, dispatch, scenario, forecast: run } = useOps();
   const c = useControls();
   const t = state.t;
+  // options follow the clock to 0.1 min (a fire that starts at T+2.3 is fixable at T+2.3, not T+3);
+  // the savings prediction (a few engine runs) is refreshed once per scenario minute
+  const tNow = Math.round(t * 10) / 10;
   const minute = Math.floor(t);
   const ids = useMemo(() => [...new Set(assetIds)], [assetIds]);
   const fixesKey = c.fixes.map((f) => f.id).join(',');
 
   const options = useMemo(() => {
-    const ctx = { facility, scenario, seedReadings: SEED, fixes: c.fixes, t: minute, run };
+    const ctx = { facility, scenario, seedReadings: SEED, fixes: c.fixes, t: tNow, run, mode: 'forecast' as const };
     const seen = new Set<string>();
     const out: FixOption[] = [];
     for (const id of ids) for (const o of fixOptionsFor(ctx, id)) if (!seen.has(key(o))) { seen.add(key(o)); out.push(o); }
-    return out.filter((o) => !c.fixes.some((f) => f.assetId === o.assetId && f.action === o.action)).slice(0, compact ? 3 : 5);
+    return out.filter((o) => !c.fixes.some((f) => f.assetId === o.assetId && f.action === o.action)).slice(0, 3);
     // fixesKey stands in for c.fixes (new array identity on every stage message)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ids, scenario, minute, fixesKey, compact, run]);
+  }, [ids, scenario, tNow, fixesKey, run]);
 
+  const optionKeys = options.map(key).join(",");
   // counterfactuals are a few engine runs each: compute after paint, one per frame
   const [preds, setPreds] = useState<Record<string, FixPrediction>>({});
+  // engine-predicted impact captured when the fix was ordered, kept for the applied row
+  const [outcomes, setOutcomes] = useState<Record<string, string>>({});
   useEffect(() => {
     let cancelled = false;
-    const ctx = { facility, scenario, seedReadings: SEED, fixes: c.fixes, t: minute };
-    const queue = [...options];
+    const ctx = { facility, scenario, seedReadings: SEED, fixes: c.fixes, t: tNow, mode: 'forecast' as const };
+    const queue = options.filter((o) => !preds[`${key(o)}@${minute}`]);
     const next = () => {
       if (cancelled) return;
       const o = queue.shift();
@@ -51,11 +58,13 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
     const id = window.setTimeout(next, 30);
     return () => { cancelled = true; window.clearTimeout(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options, minute]);
+  }, [optionKeys, minute]);
 
   const ordered = c.fixes.filter((f) => ids.includes(f.assetId));
   const order = (o: FixOption) => {
     const fix = makeFix(o, t);
+    const d = preds[`${key(o)}@${minute}`];
+    if (d) setOutcomes((prev) => ({ ...prev, [fix.id]: describeFix(d).headline + ' · ' + describeFix(d).detail }));
     c.send({ type: 'fix', fix }); // the store writes "Fix ordered" / "Fix in effect" to the log
   };
   const cancel = (f: Fix) => {
@@ -71,9 +80,10 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
             const live = t >= f.effectiveAt;
             return (
               <li key={f.id} className={live ? 'is-live' : ''}>
-                <span className={`fix-state mono ${live ? 'is-live' : ''}`}>{live ? 'IN EFFECT' : 'ORDERED'}</span>
+                <span className={`fix-state ${live ? 'is-live' : ''}`}>{live ? 'Applied' : 'Pending'}</span>
                 <span className="fix-label">{f.label}</span>
-                <span className="fix-when mono">{live ? `since T+${Math.round(f.effectiveAt)}` : f.effectiveAt > scenario.horizonMin ? `takes effect T+${Math.round(f.effectiveAt)} · after this ${scenario.horizonMin}-min window` : `takes effect T+${Math.round(f.effectiveAt)} · in ${Math.max(1, Math.ceil(f.effectiveAt - t))} min`}</span>
+                <span className="fix-when">{live ? 'live in the model' : f.effectiveAt > scenario.horizonMin ? `needs ~${Math.round(f.effectiveAt - t)} min — beyond this window` : `ready in ~${Math.max(1, Math.ceil(f.effectiveAt - t))} min`}</span>
+                {outcomes[f.id] && <span className="fix-outcome">{outcomes[f.id]}</span>}
                 {!live && <button className="fix-cancel" onClick={() => cancel(f)}>Cancel</button>}
               </li>
             );
@@ -81,7 +91,7 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
         </ul>
       )}
       {options.length === 0 && ordered.length === 0 && (
-        <p className="muted small">No fix is available here yet. Verify the problem first, or select the equipment causing it.</p>
+        <p className="muted">No fix available here yet. Verify the problem first, or select the equipment causing it.</p>
       )}
       {options.length > 0 && (
         <ul className="fix-options">
@@ -90,28 +100,20 @@ export function FixPanel({ assetIds, compact }: { assetIds: ID[]; compact?: bool
             const d = p ? describeFix(p) : null;
             return (
               <li key={key(o)} className="fix-opt">
-                <div className="fix-opt-h">
+                <div className="fix-opt-txt">
                   <span className="fix-label">{o.label}</span>
-                  <span className="fix-delay mono">takes ~{o.delayMin} min</span>
+                  <span className="fix-line" title={d ? d.detail : o.description}>
+                    needs ~{o.delayMin} min · {d ? <b className={d.helps ? 'is-good' : ''}>{d.headline.toLowerCase()}</b> : 'estimating impact…'}
+                  </span>
                 </div>
-                {!compact && <p className="fix-desc">{o.description}</p>}
-                <div className="fix-pred">
-                  {d ? (
-                    <>
-                      <span className={`fix-head ${d.helps ? 'is-good' : ''}`}>{d.headline}</span>
-                      <span className="fix-detail">{d.detail}</span>
-                    </>
-                  ) : <span className="fix-detail">Predicting what this saves…</span>}
-                </div>
-                <button className="btn btn-primary fix-go" disabled={!c.shared} title={c.shared ? 'Order this fix for every screen' : 'Fixes need the stage (open the workspace from #/app)'} onClick={() => order(o)}>
-                  Order fix
+                <button className="btn btn-primary fix-go" disabled={!c.shared} title={c.shared ? 'Dispatch this response through the simulation stage' : 'Responses need the stage (open the workspace from #/app)'} onClick={() => order(o)}>
+                  Apply fix
                 </button>
               </li>
             );
           })}
         </ul>
       )}
-      {!compact && <p className="muted small fix-foot">Predictions are engine counterfactuals: the same scenario run with and without the fix. Work times are assumptions.</p>}
     </div>
   );
 }

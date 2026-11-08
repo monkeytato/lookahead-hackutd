@@ -1,6 +1,8 @@
 /**
  * Pure helpers for the phone remote (#/stage): what is wrong right now, and what the engine
  * predicts. Every number comes from the engine run (Monte Carlo p50 clocks); nothing is invented.
+ * Callers pass the FORECAST run (store `forecast`, audit C1): only faults observed or inferable
+ * by t, so nothing here counts down to a fault nobody can see yet.
  */
 import { facility } from '../domain/fixture';
 import type { ID, ImpactClock, Incident, Severity } from '../domain/types';
@@ -94,10 +96,12 @@ export function predictionSummary(run: ScenarioRun, t: number, lookaheadMin: num
   return { racksLostByEnd, racksTotal: racks.length, nextRackLoss, lostInWindow, nextLoss, horizonMin };
 }
 
-export function summaryLines(p: PredictionSummary, t: number, lookaheadMin: number): string[] {
+/** `observed` false: nothing observed yet leads to a loss, so there is nothing to count down to. */
+export function summaryLines(p: PredictionSummary, t: number, lookaheadMin: number, observed = true): string[] {
+  if (!observed) return ['No observed fault · watching.', `${p.racksLostByEnd} of ${p.racksTotal} racks lost by T+${p.horizonMin} from what is observed so far.`];
   const lines: string[] = [];
-  lines.push(p.nextLoss ? `Next loss: ${nameOf(p.nextLoss.assetId)} in ${fmtMin(p.nextLoss.at - t)}` : 'No further losses modeled within the scenario.');
-  lines.push(p.nextRackLoss ? `First rack down in ${fmtMin(p.nextRackLoss.at - t)} (${p.nextRackLoss.assetId})` : 'No rack loss ahead within the scenario.');
+  lines.push(p.nextLoss ? `Next loss: ${nameOf(p.nextLoss.assetId)} in ${fmtMin(p.nextLoss.at - t)}` : 'No further losses forecast within the scenario.');
+  lines.push(p.nextRackLoss ? `First rack down in ${fmtMin(p.nextRackLoss.at - t)} (${p.nextRackLoss.assetId})` : 'No rack loss forecast within the scenario.');
   lines.push(`${p.racksLostByEnd} of ${p.racksTotal} racks lost by T+${p.horizonMin} if nothing else changes.`);
   if (lookaheadMin > 0) lines.push(p.lostInWindow.length ? `Next ${lookaheadMin} min: ${p.lostInWindow.length} more asset${p.lostInWindow.length === 1 ? '' : 's'} lost.` : `Next ${lookaheadMin} min: no new losses.`);
   return lines;

@@ -15,7 +15,8 @@
     "dev:lan": "concurrently -k -n bridge,web \"npm:dev:bridge\" \"vite --host\"",
     "bridge": "tsx server/index.ts",
     "build:artifact": "tsc -b && vite build --mode artifact && node scripts/artifact-page.mjs",
-    "preview:artifact": "vite preview --mode artifact --port 4174 --strictPort"
+    "preview:artifact": "vite preview --mode artifact --port 4174 --strictPort",
+    "validate": "tsx scripts/validate/run.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

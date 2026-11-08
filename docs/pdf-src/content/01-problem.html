@@ -1,0 +1,50 @@
+<section class="chapter" id="s1">
+  <div class="kicker">Section 1</div>
+  <h1>The problem and the claim</h1>
+  <p class="lead">When an alarm fires in a data hall, the operator has minutes to answer three questions: is the alarm real, how long until running services are affected, and which response should go first? CenterGuard answers each with a number computed from physics, published reliability data and a seeded statistical engine, and it states how far each number can be trusted.</p>
+
+  <h2>Why it matters</h2>
+  <p>Outages are expensive. The project dossier verified the Uptime Institute figures and corrected the pitch wording to:</p>
+  <blockquote>"In Uptime Institute's 2025 annual survey, 57% of operators said their most recent major outage cost more than $100,000, and 1 in 5 said it cost more than $1 million."<cite>Uptime Institute, <i>Annual Outage Analysis 2026</i> (released 13 May 2026). Wording as corrected in PREDICTION-SCIENCE.md §2.9.</cite></blockquote>
+  <p>These are survey self-reports about each respondent's most recent <i>major</i> outage, not a loss model for this facility. A lognormal fit to the two exceedance points gives a median of about $149k and a p90 of about $2.7M <span class="tag c">calc</span>; with only two points behind it, CenterGuard shows it as context next to P(service impact) and never turns it into a single "expected dollars" figure.</p>
+
+  <h2>What was wrong before the overhaul</h2>
+  <p>A science audit (dossier §1) found that the prototype's numbers looked precise but were not predictions:</p>
+  <table>
+    <thead><tr><th style="width: 24%">Problem found</th><th>What it meant</th><th style="width: 15%">Fixed by</th></tr></thead>
+    <tbody>
+      <tr><td><b>Foreknowledge</b> (audit C1)</td><td>Forecasts ran every scripted fault, including future ones: the riser leak that starts at T+4 was "predicted" at T+0 while every reading was normal.</td><td><code>observable.ts</code></td></tr>
+      <tr><td><b>Thermal model not physical</b> (S3)</td><td>A per-rack curve tuned to the cascade's own assumed delays (circular calibration), although a rack inlet is room air.</td><td><code>thermalZone.ts</code></td></tr>
+      <tr><td><b>Overconfident intervals</b> (S1)</td><td>Only delay noise was sampled, not parameter uncertainty. p10–p90 contained <b>{{covLegacy}} %</b> of realised losses against an 80 % target.</td><td><code>ensemble.ts</code></td></tr>
+      <tr><td><b>No failure probabilities</b></td><td>Backup equipment never failed on demand, though generators, switches and chillers do, at published rates.</td><td><code>priors.ts</code></td></tr>
+      <tr><td><b>Verdicts ignored the error budget</b> (C3)</td><td>"Portable ≥ 28 °C" decided the verdict; the installed reading was never compared with the reference.</td><td><code>evidence.ts</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>The claim, stated so it is true of the build</h2>
+  <div class="callout teal">
+    <div class="t">Pitch claim</div>
+    When a warning comes in, CenterGuard compares the installed sensor with a portable reference reading to get the probability that the condition is real. It then runs thousands of physics-based simulations of each candidate response. Nemotron acts as a red team, steering those simulations toward the compound failures most likely to break the plan, while every reported number comes from the simulator.
+  </div>
+  <p class="small">The dossier's draft said "tens of thousands". The build runs 2,048 trials per option in round 0 (2 or 3 options) plus at most two stress rounds of 4,096, about 12,000–14,000 trials per evaluation <span class="tag c">calc</span> from <code>server/director/evaluation.ts</code>; "thousands" is accurate.</p>
+
+  <h2>What "science-based" means here</h2>
+  <ul class="tight">
+    <li><b>Mechanism, not curve fitting.</b> Heat-up comes from a room energy balance, the model form of Schneider Electric's WP179 (§3.1).</li>
+    <li><b>Out-of-sample checks.</b> One unknown is fitted to one published peak; the other cases are predicted and misses reported (§6.1).</li>
+    <li><b>Published rates for rare events</b> from the INL/EXT-21-65055 component database (§3.3).</li>
+    <li><b>Explicit uncertainty.</b> Parameters without data are sampled widely and labelled assumptions (§7); intervals stay a "model range" until coverage reaches 75–85 % (§6.2).</li>
+    <li><b>An LLM that cannot move the estimate.</b> Nemotron changes which trials are drawn, and importance weights correct for that choice (§4).</li>
+  </ul>
+</section>
+
+<section class="chapter" id="s2">
+  <div class="kicker">Section 2</div>
+  <h1>System overview</h1>
+  <p class="lead">One pipeline turns readings into a recommendation. Each step is a pure, seeded TypeScript module under <code>src/domain/engine/</code>, so the same input always gives the same output.</p>
+  <figure class="flow">
+    <!--CHART:flow-->
+    <figcaption><b>Figure 1.</b> Data flow for one incident evaluation. Solid arrows carry engine data. The orange box is the only place an LLM participates: its proposals pass a grammar check before they can steer sampling, and its prose passes a number validator before the operator sees it. The static demo build runs the same pipeline with the cross-entropy proposer and no network.</figcaption>
+  </figure>
+  <p class="small">Scope note. Forecast mode is opt-in for <code>simulateScenario</code> and <code>predictFix</code>. The stage, presentation and phone screens still replay the scenario script; only the evaluate path, the director session and the ensemble always forecast (implementation notes, "Decisions").</p>
+</section>

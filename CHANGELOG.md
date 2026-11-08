@@ -3,6 +3,63 @@
 All changes to Lookahead (HackUTD 2026, Northmark Compute & Cloud track), newest first.
 Repo: `monkeytato/lookahead-hackutd` · branch `main`.
 
+## 2026-11-08 · Not committed: incomplete submissions, science-based predictions, audit
+
+Working tree only. Nothing is committed or pushed.
+
+**Incomplete report submission**
+- An outcome can now be submitted with checklist boxes unchecked. It still needs an owner and a note of at least 8 characters, and the operator confirms first.
+- Unchecked steps are saved on the issue (`incomplete`), and the resolution event is flagged `incomplete`. A missing or inconclusive measurement counts as an unchecked verify step.
+- History and Handoff rows for these submissions are highlighted red, and both pages list "Incomplete submissions". Team response cards are flagged.
+- `reviewWork` reports these issues as handoff gaps.
+
+**Predictions** (spec: `docs/PREDICTION-SCIENCE.md`; build log: `docs/PREDICTION-IMPLEMENTATION-NOTES.md`)
+- **No-foreknowledge forecasting** (`engine/observable.ts`): future scripted faults become hypotheses with published-rate priors. The director and evaluate always forecast. The stage, present, Facility and phone views still replay the script.
+- **Physics thermal zones** (`thermalZone.ts`):
+  - Energy balance across room air, IT mass and chilled water, with a calibrated coupling factor.
+  - Two clocks: 32 °C (out of the ASHRAE allowable envelope) and 40–45 °C (service impact).
+  - Backtested against Schneider WP179 and published CFD points.
+- **Two-level Monte Carlo** (`ensemble.ts`): parameter uncertainty is drawn on the outer level, with shared zone draws. Uses INL reliability priors (`priors.ts`). 2,048 trials per option.
+- **Evidence posterior** (`evidence.ts`): installed reading vs portable reading, scored with a Student-t error budget to give P(real). It refuses quantities the probe can't measure. `verify_scan` uses it.
+- **Evaluate fix:** each warning kind runs in its own `incident-*` scenario, and the evidence moves the result. The chiller case was 48 racks and is now 0 with no response. A second chiller trip is a hypothesis.
+- **Nemotron red team** (`stress.ts`, `server/director/evaluation.ts`):
+  - Nemotron proposes up to 6 stress regions in a closed grammar.
+  - The engine samples a defensive mixture (α = 0.3) with capped weights, so the estimate stays unbiased whatever Nemotron proposes.
+  - EVSI next-scan ranking (`evsi.ts`).
+  - `validate.ts` also checks percentages, counts, "1 in N" and signed-shift direction. Log context goes to the director as a structured field.
+- **UI:** `EnsembleCompare` in section 2 shows P(real), the two clocks labelled "model range", trials, stress regions and the next scan.
+- **Coverage:** 24% → 82% against the model's own priors, but only 52% with priors widened ±30%. The UI therefore keeps "model range, not a calibrated p10–p90".
+- **Data:** about 30 MB pulled into `research/` (10 years of DFW hourly weather, NOAA ISD, INL reliability, ASHRAE, WP179, Binghamton). `research/SOURCES.md` lists every source.
+
+**Docs**
+- `docs/AUDIT-2026-11-07.md`: full site audit with 45 findings.
+- `docs/CenterGuard-Prediction-Science.pdf`: how the predictions work.
+
+✓ 282 tests passing · typecheck clean · lint 0 errors · artifact rebuilt.
+
+## 2026-11-07 · Local merge, not committed: Clement's rework + the gauge monitor
+
+This is in the working tree only. Nothing has been committed or pushed yet.
+
+- **Clement's `50744a7` is merged into the local work.** His shell and home screen (`MonitorWorkspace`) stay the default. His sensor inventory stays at `#/app/inventory`, and his simulation lab at `#/app/sim`.
+- **Two new tabs carry the local work:** **Gauges** (`#/app/gauges`: dials, trends, a "What's wrong" strip, and Fix) and **Facility** (`#/app/facility`: the fix queue plus the 3D hall, now `src/views/Facility.tsx`). On both tabs the simulation bar (`TopBar`, in its new `embedded` mode) sits under the header, with Play, Spawn disaster, Back to normal and the ⋯ menu.
+- **Both versions of `Operations.tsx` stay, as separate files:** Clement's sensor inventory is `Operations`, and the local 3D workspace is `Facility`.
+- **CSS:** Clement's `app.css` also uses `.mon*`, so the gauge page's classes are now `gm-*` in `src/views/gauges.css`. Clement's `monitor.css` is unchanged.
+- **FixPanel:** keeps the local one-line option layout, with Clement's wording ("Apply fix", Pending/Applied, "needs ~N min") and his record of what an applied fix saved.
+- **Inspector:** supports both `brief` (local) and `hideFix` (Clement).
+- **server:** keeps both `/api/phone` (local) and `/api/workflow` (Clement).
+- **iOS:** there are now two separate apps. LookaheadRemote (Clement) builds from `ios/project.yml`. Lookahead, the dial companion, builds from `ios/Lookahead.yml`, run as `xcodegen --spec Lookahead.yml`. The README covers both.
+- `ControlBar.tsx`, `PredictionPanel.tsx` and `Timeline.tsx` stay deleted. Clement's version no longer used them either.
+- ✓ 229 tests passing · typecheck clean · artifact rebuilt.
+
+## 2026-11-07 · `50744a7` (Clement) · Rework the demo around monitoring, sensor coverage and shared response
+
+- **A monitoring dashboard** replaces the busy operations view. Every asset has a normal sensor baseline, and there is a clickable sensor key (`src/domain/sensors.ts`).
+- **A shared response workflow** (`src/domain/workflow.ts`, `server/workflowHub.ts`, `GET/POST /api/workflow`): simulate a warning, verify it with a 10 s scan, assign a technician, run the checklist, resolve, and review the handoff.
+- **Simulation lab** (`#/app/sim`), plus CenterGuard branding (`Brand`, `brand.css`).
+- **Native iPhone controller** `ios/LookaheadRemote` (SwiftUI).
+- Rig protocol: an optional `vibrating` field.
+
 ## 2026-11-07 · Live presentation: phone remote, random and real disasters, fixes, a growing 3D twin
 
 **Present from two devices**

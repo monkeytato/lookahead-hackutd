@@ -76,7 +76,8 @@ const SEV_RANK: Record<AssetVisualState['severity'], number> = { normal: 0, advi
  * - clocks only after their root fault is observable (no prophetic countdowns)
  * - racks that are merely downstream of a clock paint their strip but stay label-free
  */
-export function honestVisual(run: ScenarioRun, scenario: Scenario, t: number, viewT: number): Record<ID, AssetVisualState> {
+export function honestVisual(run: ScenarioRun, scenario: Scenario, t: number, viewT: number, forecast?: ScenarioRun): Record<ID, AssetVisualState> {
+  if (forecast) return forecastVisual(run, forecast, scenario, t);
   const raw = run.visualAt(viewT);
   const readings = run.readingsAt(viewT);
   const readingSev = new Map<ID, AssetVisualState['severity']>();
@@ -101,6 +102,57 @@ export function honestVisual(run: ScenarioRun, scenario: Scenario, t: number, vi
     // clock-only state paints the object; only imminent (critical) or reading-backed state gets a label
     const isRack = assetById.get(id)?.type === 'rack';
     out[id] = { ...v, quiet: !lost && rs === 'normal' && (isRack || v.severity !== 'critical') };
+  }
+  return out;
+}
+
+const maxSev = (a: AssetVisualState['severity'], b: AssetVisualState['severity']) => (SEV_RANK[b] > SEV_RANK[a] ? b : a);
+
+/**
+ * Live views (audit C1): what is true now comes from the WORLD run at t; anything predicted comes
+ * from the FORECAST run (only faults observed or inferable by t).
+ * - severity = readings, plus critical for an observable failure, plus the forecast clock's urgency
+ *   (≤ 10 min critical, ≤ 30 warning, else advisory); the script's own clocks never colour anything
+ * - `lost` only once the failure's root cause is observable (or the forecast itself has it lost);
+ *   `wet` only once the forecast knows about the water; `lost` is always set so the twin does not
+ *   fill it back in from a run's clocks
+ * - racks merely downstream of a forecast clock paint their strip but stay label-free (quiet)
+ */
+function forecastVisual(world: ScenarioRun, forecast: ScenarioRun, scenario: Scenario, t: number): Record<ID, AssetVisualState> {
+  const raw = world.visualAt(t);
+  const readings = world.readingsAt(t);
+  const readingSev = new Map<ID, AssetVisualState['severity']>();
+  for (const r of readings) {
+    if (r.source === 'reference_probe') continue;
+    readingSev.set(r.assetId, maxSev(readingSev.get(r.assetId) ?? 'normal', severityFor(r.metric, r.value, facility.thresholds)));
+  }
+  const instrumented = new Set(readings.filter((r) => r.source !== 'reference_probe').map((r) => r.assetId));
+  const out: Record<ID, AssetVisualState> = {};
+  for (const [id, v0] of Object.entries(raw)) {
+    const v = instrumented.has(id) ? v0 : { ...v0, freshness: 'fresh' as const };
+    const rs = readingSev.get(id) ?? 'normal';
+    const restored = !!v.restored;
+    const wc = world.clocks[id];
+    const fc = forecast.clocks[id];
+    const worldLostSeen = !!v.lost && !!wc && detectedAt(scenario, wc.path[0]) <= t;
+    const forecastLost = !!fc && fc.p50 != null && fc.p50 <= t && !(fc.recoveredP50 != null && fc.recoveredP50 <= t);
+    const lost = !restored && (worldLostSeen || forecastLost);
+    let severity = lost ? maxSev(rs, 'critical') : rs;
+    let clockMin: number | undefined;
+    if (fc && !lost && !restored) {
+      let cs: AssetVisualState['severity'] = 'advisory';
+      if (fc.p50 != null) {
+        const left = fc.p50 - t;
+        if (left <= 10) cs = 'critical';
+        else if (left <= 30) cs = 'warning';
+        if (left > 0) clockMin = Math.round(left * 10) / 10;
+      }
+      severity = maxSev(severity, cs);
+    }
+    const wet = !!v.wet && forecast.waterArrival[id] !== undefined;
+    const state: AssetVisualState = { ...v, severity, clockMin, lost, wet };
+    if (fc) state.quiet = !lost && rs === 'normal' && (assetById.get(id)?.type === 'rack' || severity !== 'critical');
+    out[id] = state;
   }
   return out;
 }

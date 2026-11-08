@@ -2,7 +2,7 @@
  * Random disaster generator. `randomScenario(id)` is deterministic in its id ("rnd-<base36 seed>"),
  * so any screen can rebuild the same disaster from the id alone.
  *
- * One primary event from the templates below, plus (half the time) one compounding event a few
+ * One primary event from the templates below, plus (about a third of the time) one compounding event a few
  * minutes later. Event times are random draws; every consequence comes from the facility's
  * dependency graph and its delay assumptions. A scenario that would produce no clock within the
  * horizon gets an extra compounding event, so it is always presentable.
@@ -41,11 +41,14 @@ const BUILDERS: Record<TemplateKey, (r: Rand, t0: number) => Event> = {
     const z = atCdu ? 21.3 : between(r, 10, 15);
     const src = atCdu ? 'CDU-1' : 'PIPE-L2';
     const seen = atCdu ? t0 + 1 : t0 + between(r, 4, 8);
-    const rate = Math.round(between(r, 30, 55));
+    // L/min. A riser leak is fed by the building loop (tens of L/min); a CDU secondary loop holds
+    // only tens of litres in total, so its leak rate is far smaller (assumption).
+    const rate = Math.round(atCdu ? between(r, 2, 5) : between(r, 30, 55));
     return {
       key: 'leak', label: atCdu ? 'coolant leak at CDU-1' : 'chilled-water riser leak', uses: [src],
       faults: [],
-      leak: { x, z, ratePerMin: rate, startT: t0 },
+      // a CDU secondary loop holds ~40 L (assumption): it keeps cooling until that has drained
+      leak: { x, z, ratePerMin: rate, startT: t0, ...(atCdu ? { sourceFailsAfterMin: Math.round(40 / rate) } : {}) },
       steps: [
         { t: t0, kind: 'fault', assetId: src, summary: atCdu ? 'CDU-1 secondary loop starts leaking under the floor tile' : `Riser ${src} starts leaking above the corridor (no sensor on Level 2)` },
         atCdu
@@ -122,14 +125,16 @@ const BUILDERS: Record<TemplateKey, (r: Rand, t0: number) => Event> = {
       ],
       steps: [
         { t: t0, kind: 'fault', assetId: origin, summary: `Fire starts at ${origin}` },
-        { t: t0, kind: 'alert', assetId: origin, summary: `Smoke detection in the UPS room — ${origin}`, metric: 'battery_temp_c', value: 55, source: 'installed' },
+        { t: t0, kind: 'alert', assetId: origin, summary: `Smoke detection in the UPS room — ${origin} battery cabinet at 55 °C`, metric: 'battery_temp_c', value: 55, source: 'installed' },
       ],
       incidents: [inc(++incN, { title: `Fire in the UPS room — ${origin}`, rootAssetId: origin, alertAssetIds: [origin, 'UPS-A', 'UPS-B', 'ATS-1'].filter((v, i, xs) => xs.indexOf(v) === i), severity: 'critical', evidence: 'corroborated_abnormal', openedAt: t0, summary: `Smoke and heat at ${origin}. The other UPS and the transfer switch share the room.` })],
     };
   },
   pdu(r, t0) {
     const [a, b] = pick(r, [['PDU-A1', 'PDU-B1'], ['PDU-B1', 'PDU-A1'], ['PDU-A2', 'PDU-B2'], ['PDU-B2', 'PDU-A2']] as const);
-    const t1 = t0 + between(r, 4, 10);
+    // the surviving breaker carries double load: a thermal-magnetic breaker at moderate overload trips
+    // after minutes, not seconds (assumption) — long enough for a prompt reset to matter
+    const t1 = t0 + between(r, 7, 12);
     const rows = a.endsWith('1') ? 'A–B' : 'C–D';
     return {
       key: 'pdu', label: `${a} breaker trip, then ${b}`, uses: [a, b],
@@ -201,9 +206,10 @@ export function generateRandomScenario(id: string): Scenario {
   // a compounding event starts 4–12 min after the primary (another template, at most one leak)
   const compound = (avoid: TemplateKey[]) => {
     const keys = TEMPLATES.filter((k) => !avoid.includes(k) && !(k === 'leak' && events.some((e) => e.leak)));
-    return BUILDERS[pick<TemplateKey>(r, keys.length ? keys : ['chillers'])](r, Math.min(40, t0 + between(r, 4, 12)));
+    return BUILDERS[pick<TemplateKey>(r, keys.length ? keys : ['chillers'])](r, Math.min(40, t0 + between(r, 6, 14)));
   };
-  if (r() < 0.5) events.push(compound([primary]));
+  // a second event about a third of the time: compound disasters need two fixes, so keep most draws single
+  if (r() < 0.35) events.push(compound([primary]));
   let s = assemble(id, events);
   for (let tries = 0; tries < 3 && !hasClock(s); tries++) {
     events.push(compound(events.map((e) => e.key)));

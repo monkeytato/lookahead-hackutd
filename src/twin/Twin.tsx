@@ -34,6 +34,8 @@ export interface TwinProps {
   route?: Waypoint[];
   /** Asset ids, fault → impacted node */
   highlightPath?: string[];
+  /** Assets outlined as sensor marks (Operations key) */
+  markIds?: string[];
   layers: TwinLayers;
   resetViewKey?: number;
   className?: string;

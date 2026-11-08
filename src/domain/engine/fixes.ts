@@ -13,6 +13,7 @@
 import { facility as fixtureFacility, services as fixtureServices } from '../fixture';
 import type { Facility, Fix, FixAction, ID, Reading, Scenario } from '../types';
 import { leakSource, simulateScenario, type ScenarioRun } from './simulate';
+import { detectedAt, forecastScenario } from './observable';
 
 export interface FixOption {
   action: FixAction;
@@ -43,6 +44,12 @@ export interface FixContext {
   facility: Facility; scenario: Scenario; seedReadings: Reading[]; fixes: Fix[]; t: number;
   /** The current run (with ctx.fixes), if the caller already has it — saves a simulation */
   run?: ScenarioRun;
+  /**
+   * 'script' (default): predictions replay the whole scenario script (stage / replay semantics).
+   * 'forecast': predictFix uses only what is observed or inferable at ctx.t plus `hypotheses` (audit C1).
+   */
+  mode?: 'script' | 'forecast';
+  hypotheses?: string[];
 }
 
 export interface PredictionSummary {
@@ -59,15 +66,31 @@ export interface PredictionSummary {
   servicesDown: ID[];
 }
 
-const COUNTERFACTUAL_RUNS = 150;
+// Same Monte Carlo sample count as the live run (runCascade default), so "saves N" matches what the
+// screens show after the fix is ordered. With 150 runs, boundary assets flipped and a UPS transfer
+// predicted "saves 20" against 25 actually saved.
+const COUNTERFACTUAL_RUNS = 400;
 
 // ---- run cache (the UI asks for options and predictions on every render)
 const runCache = new Map<string, ScenarioRun>();
+/** Cache key over everything that changes the run, not just the scenario id (audit C12). */
+function runKey(ctx: FixContext, fixes: Fix[], runs: number): string {
+  const s = ctx.scenario;
+  const world = JSON.stringify([s.id, s.horizonMin, s.faults, s.leak ?? null, s.hazards ?? null, s.steps.length, ctx.facility.id, ctx.facility.edges.length]);
+  // A forecast run depends on t only through what is known at t: key it on that observation state,
+  // so live views asking every tick reuse one run until something new is observed.
+  const mode = ctx.mode === 'forecast' ? `forecast:${forecastKey(ctx)}:${(ctx.hypotheses ?? []).slice().sort().join('+')}` : 'script';
+  return `${world}|${mode}|${runs}|${fixes.map((f) => `${f.assetId}@${f.effectiveAt}`).sort().join(',')}`;
+}
+function forecastKey(ctx: FixContext): string {
+  const fc = forecastScenario(ctx.facility, ctx.scenario, ctx.t, ctx.hypotheses ?? []).scenario;
+  return JSON.stringify([fc.faults, fc.leak ?? null, fc.hazards ?? null]);
+}
 function cachedRun(ctx: FixContext, fixes: Fix[], runs: number): ScenarioRun {
-  const key = `${ctx.scenario.id}|${runs}|${fixes.map((f) => `${f.assetId}@${f.effectiveAt}`).sort().join(',')}`;
+  const key = runKey(ctx, fixes, runs);
   let r = runCache.get(key);
   if (!r) {
-    r = simulateScenario({ facility: ctx.facility, scenario: ctx.scenario, seedReadings: ctx.seedReadings, fixes, runs });
+    r = simulateScenario({ facility: ctx.facility, scenario: ctx.scenario, seedReadings: ctx.seedReadings, fixes, runs, mode: ctx.mode, forecastAt: ctx.t, hypotheses: ctx.hypotheses });
     runCache.set(key, r);
     if (runCache.size > 32) runCache.delete(runCache.keys().next().value!);
   }
@@ -75,7 +98,7 @@ function cachedRun(ctx: FixContext, fixes: Fix[], runs: number): ScenarioRun {
 }
 
 const OPTION: Record<FixAction, { label: (id: ID) => string; description: string; delayMin: number }> = {
-  isolate_valve: { label: (id) => (id.startsWith('CDU') ? `Isolate ${id} and its secondary loop` : `Close the isolation valves on ${id}`), description: 'Stops the water at the source; what is already on the floor still spreads and drains.', delayMin: 4 },
+  isolate_valve: { label: (id) => (id.startsWith('CDU') ? `Isolate the leaking branch and top up ${id}` : `Close the isolation valves on ${id}`), description: 'Stops the water at the source; what is already on the floor still spreads and drains.', delayMin: 4 },
   restart_chiller: { label: (id) => `Restart ${id} manually`, description: 'A technician resets the trip and runs the restart sequence at the unit.', delayMin: 7 },
   reset_fan: { label: (id) => `Reset the ${id} fan`, description: 'Clears the trip and restarts the fan; buys time until the bearing is replaced.', delayMin: 5 },
   swap_crah: { label: (id) => `Cover ${id} with the standby unit`, description: 'Brings standby cooling online for the rows this unit serves.', delayMin: 10 },
@@ -88,14 +111,8 @@ const OPTION: Record<FixAction, { label: (id: ID) => string; description: string
 };
 
 const opt = (action: FixAction, assetId: ID): FixOption => ({ action, assetId, label: OPTION[action].label(assetId), description: OPTION[action].description, delayMin: OPTION[action].delayMin });
-
-/** First minute anyone could know about trouble at this asset (alert/reading steps, else its fault). */
-function detectedAt(scenario: Scenario, assetId: ID): number {
-  const obs = scenario.steps.filter((s) => s.assetId === assetId && s.kind !== 'fault').map((s) => s.t);
-  if (obs.length) return Math.min(...obs);
-  const f = scenario.faults.find((x) => x.assetId === assetId);
-  return f ? f.t : Infinity;
-}
+/** A fix option by action and asset (for callers that choose the options themselves, e.g. incident evaluation). */
+export const fixOption = opt;
 
 /** Fix options for one asset at time t (empty when nothing applies or it is already being fixed). */
 export function fixOptionsFor(ctx: FixContext, assetId: ID): FixOption[] {
@@ -127,9 +144,13 @@ export function fixOptionsFor(ctx: FixContext, assetId: ID): FixOption[] {
     case 'battery': if (vis?.burning || fireOrigin) out.push(opt('suppress_fire', assetId)); break;
     case 'pdu': if (faulted || vis?.lost) out.push(opt('reset_breaker', assetId)); break;
     case 'rack': {
-      if (vis?.lost) break;
+      // Rack-level actions only stretch a THERMAL ride-through. A rack on a power, water or fire
+      // clock cannot be saved by shedding load or a spot cooler; the fix is upstream.
+      if (vis?.lost || vis?.wet || vis?.burning) break;
+      const thermal = !!via && (via.type === 'crah' || via.type === 'cdu' || via.type === 'pump' || via.type === 'chiller');
+      if (!thermal) break;
       out.push(opt('shed_load', assetId));
-      if (!via || via.type === 'crah' || via.type === 'cdu' || via.type === 'pump' || via.type === 'chiller') out.push(opt('deploy_portable_cooling', assetId));
+      out.push(opt('deploy_portable_cooling', assetId));
       break;
     }
     default: break;

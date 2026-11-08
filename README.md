@@ -1,3 +1,18 @@
+## Monitoring workspace and native controller (current working tree)
+
+The primary `#/app` view is the monitoring and coordinated-response workspace. New warning → independent scan → contextual evaluation → assigned checklist → recorded outcome → handoff. The bridge shares the incident record with the native SwiftUI iPhone controller through `/api/workflow`.
+
+- `#/app/tasks`: shared team response/checklists.
+- `#/app/log`: timestamped history and investigation context.
+- `#/app/handoff`: missing-owner/evidence/checklist review and record export.
+- `#/app/inventory`: preserved baseline sensor inventory.
+- `#/app/lab`: preserved advanced scenario simulator, separate from primary monitoring.
+- `ios/LookaheadRemote.xcodeproj`: native SwiftUI presenter/controller; see [iPhone setup](ios/README.md).
+
+Facility-installed readings and injected alerts are demonstration data. Only compatible bridge frames labelled `live` are physical sensor readings. Optional `vibrating` firmware data is qualitative, never calibrated mm/s. No firmware is flashed and controller demo commands do not actuate equipment.
+
+See [product review and walkthrough](docs/PRODUCT-DEMO-REVIEW.md) and [Freebuff continuation prompt](docs/FREEBUFF-CONTINUE.md) for design choices, the presentation script, verification and remaining environment blockers.
+
 # Lookahead — know which warning to trust, and what to fix first
 
 HackUTD 2026 · **Northmark Compute & Cloud: Keep the World Running**
@@ -67,16 +82,36 @@ Every screen follows one shared **stage**: the scenario, the clock (play, pause,
 2. **Phone:** on the same Wi-Fi, open `http://<laptop-ip>:5173/#/stage`. The bridge relays commands between devices.
 3. **Claude artifact instead:** open the published artifact on the laptop and the phone, signed in to the same account. The artifact link can't carry a route, so on the phone tap **Phone remote** on the landing page. The two copies talk through the artifact's live room; a copy that opens late catches up from its stored state.
 
-The workspace control bar (under the top bar):
-- **Scenario picker:** the real incidents (each adapted from a public post-incident report, compressed and simulated), followed by engineering what-ifs. Each entry shows its headline and source.
-- **Random disaster:** generates a new seeded disaster (leak, chiller or CRAH failure, utility loss with a generator that won't start, UPS fire, breaker trip; sometimes two at once) and starts the clock. The id (`rnd-…`) rebuilds the same disaster on every screen.
-- **Play / −5 / +5 / speed / timeline:** the shared clock. Ticks mark scenario events and fixes taking effect.
-- **Prediction +10 / +20 / +30:** previews the engine forecast that far ahead, in the 3D twin and on the presenter screen. It is labeled as a forecast, not observed.
-- **Phone remote:** how to open the remote on a phone, and which link is carrying the stage.
+The workspace (`#/app`) is one screen:
+- **Top bar:** the scenario headline, the clock, and these controls:
+  - **Play**
+  - **Random disaster:** a seeded leak, chiller or CRAH failure, utility loss with a generator that won't start, UPS fire, or breaker trip, sometimes with a second event. The `rnd-…` id rebuilds the same disaster on every screen.
+  - **Scenario picker:** real incidents adapted from public post-incident reports, then what-ifs.
+  - **Prediction Off / +10 / +20:** previews the forecast in the 3D twin, labeled as a forecast.
+  - **Link dot:** green when the phone and projector follow.
+  - **⋯:** −5/+5 min, speed, reset, and how to connect a phone.
+  - **More:** the other pages (Rack node, Tasks, Team, Dependencies, Log, Shift handoff), the presenter screen and the phone remote.
+- **Left:** *What to fix first*, the top three problems. Each shows its time to impact ("Rack loss in 7 min") and a **Fix** button.
+- **Center:** the 3D twin. Water and fire appear on their own, and **View** toggles the layers.
+- **Right**, only when something is selected: what it is, how long we have, the fix options ("takes ~4 min · saves 20 racks") with **Order**, and the ordered fixes. Everything else (why chain, evidence, priority breakdown, tasks, director) sits under **More details**.
+- **Bottom:** one forecast line: *If nothing changes: first rack lost at 02:24 · 48 racks by 03:10*, and *With your fixes* once you order one.
 
-**Fixes.** Open an incident (or the **Fix…** button on its queue card) to see what can be done about it. That might be closing a riser valve, restarting a chiller, a manual generator start, releasing fire suppression or resetting a breaker. Each option shows its assumed work time and what the engine predicts it saves: the same scenario run with and without the fix ("Saves 12 racks · first rack loss moves from T+44 to none"). **Order fix** sends it through the stage. It takes effect after the work time, the twin shows the equipment recovering, and the forecast panel compares the outcome with and without your fixes.
+Each fix's prediction is a counterfactual: the same scenario run with and without it. Work times are assumptions. An ordered fix goes through the stage and takes effect after its work time, and the twin shows the equipment recovering.
 
 Presenter keys: **Space** play/pause · **R** random disaster · **P** prediction · **F** full screen.
+
+## Native iPhone app
+
+The SwiftUI companion in `ios/` is a thin client. The laptop runs the engine; the phone renders one compact JSON and sends intents. Run `npm run dev:lan` on the laptop and point the app at `http://<laptop-ip>:5173`. Vite proxies `/api` to the bridge, which stays on 127.0.0.1.
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/phone` | The whole phone screen in one payload. `stage`: scenario, T+, wall clock, playing, speed, prediction, auto-pause. `forecast`: next rack loss, racks lost and at risk, services at risk, racks saved by fixes. Also the top 3 `clocks`, up to 4 `problems` with up to 2 `fixes` each (and what each saves), ordered `fixes`, the latest `rig` reading and the `director` status. Built by `server/phoneSummary.ts`; sample payload in `tests/server/__fixtures__/phone-sample.json`. |
+| `POST /api/phone/random` | Starts a random disaster (autoplay) and returns the new payload. |
+| `POST /api/phone/fix` | `{assetId, action}`: orders a fix the engine offers right now (400 if it is not on offer) and returns the new payload. |
+| `POST /api/stage` | `{cmd}` for everything else: `play`, `pause`, `jump`, `speed`, `lookahead`, `autopause`. |
+
+The payload's key names are a contract with the Swift models; change both together.
 
 ## The rig → scanner → dashboard loop
 
@@ -134,7 +169,7 @@ On the fixture at 02:35:
 ## Demo script (2 min)
 
 1. **Landing → Open demo.** The hall is quiet, in grayscale.
-2. **Two warnings.** A-11 reports 34.2 °C, and CRAH-2 fan vibration has tripled. The queue ranks both and shows why.
+2. **Two warnings.** A-11 reports 34.2 °C, and CRAH-2 fan vibration has tripled. *What to fix first* lists both with their time to impact; the ranking reasons are under **More details**.
 3. **Verify A-11.**
    - On the A-11 incident, click **Request scan**.
    - The request appears on the phone (`#/scan`). Put the rig at the inlet and **hold to scan** for 10 s.

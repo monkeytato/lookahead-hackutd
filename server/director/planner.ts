@@ -13,6 +13,34 @@ import type { Session } from './tools';
 import type { CompactRun, DirectorInput, DirectorResult, DirectorStep, Hypothesis, ScanValueResult } from './types';
 import { validateRecommendation } from './validate';
 import { dispatchExternal, type ExternalServices } from './external';
+import { bestResponseIndex, crossEntropyRound, dominantRegion, evaluationOutput, prepareRound0Async } from './evaluation';
+
+/** Let a browser page paint between heavy engine steps (the static artifact runs the planner in-page). */
+const yieldUi = () => new Promise<void>((r) => setTimeout(r, 0));
+const fp = (p: number) => (p < 0.0005 ? '< 0.1 %' : `${Math.round(p * 1000) / 10} %`);
+
+/** Sentences about the ensemble and the stress test, built only from cited engine numbers. */
+function evaluationText(session: Session): { summary: string; hypothesis: Hypothesis | null } {
+  const ev = session.evaluation!;
+  const ens = ev.round0!;
+  const id = ev.digestId!;
+  const none = ens.summaries[0];
+  const k = bestResponseIndex(ens);
+  const w = k > 0 ? ens.summaries[k] : null;
+  let summary = `Engine ensemble (${id}, ${ens.trials} trials per option, P(real) ${ev.request.pReal.toFixed(2)}): with no response, P(critical service down) ${fp(none.pServiceDown)} (CI90 ${fp(none.ci90[0])}–${fp(none.ci90[1])}), p50 ${none.racks.p50} racks impacted (p10–p90 ${none.racks.p10}–${none.racks.p90}).`;
+  if (w) summary += ` ${w.label}: ${fp(w.pServiceDown)}, p50 ${w.racks.p50} racks impacted.`;
+  const st = ev.stress.at(-1);
+  let hypothesis: Hypothesis | null = null;
+  if (st) {
+    const top = dominantRegion(st.result.regions);
+    summary += ` Cross-entropy stress test (${st.id}, ${st.result.trials} trials, ESS ${st.result.ess}): P(failure) ${fp(st.result.pFail)}.`;
+    if (top && top.shareOfFailure > 0) {
+      summary += ` Biggest remaining risk: ${top.label} (about 1 in ${top.priorOneIn} incidents; ${fp(top.shareOfFailure)} of the remaining failure probability).`;
+      hypothesis = { label: `Dominant failure mode: ${top.label}`, support: `P(failure | region) ${fp(top.pFailGivenRegion)}; ${fp(top.shareOfFailure)} of the failure probability (${st.id})`, runIds: [st.id] };
+    }
+  }
+  return { summary, hypothesis };
+}
 
 const PLANNER = 'Local planner';
 
@@ -74,6 +102,17 @@ export async function runLocalPlanner(input: DirectorInput, fallbackReason?: str
   const steps: DirectorStep[] = [];
 
   call(session, steps, 'get_situation', {});
+  let evalSummary: ReturnType<typeof evaluationText> | null = null;
+  if (session.evaluation) {
+    if (session.context.events.length || session.context.notes.length) call(session, steps, 'get_context', {});
+    await prepareRound0Async(session);
+    call(session, steps, 'stress_digest', {});
+    await yieldUi();
+    const ce = crossEntropyRound(session);
+    if (ce) steps.push({ tool: 'stress_test', args: { proposer: 'cross_entropy', option: ce.result.option, regions: ce.result.regions.map((r) => r.label) }, summary: `${ce.id}: ${ce.result.option} P(failure) ${(ce.result.pFail * 100).toFixed(2)} % over ${ce.result.trials} trials (cross-entropy proposals)`, runId: ce.id, ok: true });
+    await yieldUi();
+    evalSummary = evaluationText(session);
+  }
   // outside world first: is the rig trustworthy, and is the weather stressing the cooling plant?
   let rigTrust: string | null = null;
   let rig: { valve?: string; floor_raw?: number; source?: string } | null = null;
@@ -173,10 +212,26 @@ export async function runLocalPlanner(input: DirectorInput, fallbackReason?: str
     }
   }
 
+  if (evalSummary) {
+    summary = `${evalSummary.summary} ${summary}`;
+    if (evalSummary.hypothesis) hypotheses.unshift(evalSummary.hypothesis);
+    const ev = session.evaluation!;
+    const top = (ev.evsi ?? []).find((r) => r.evsi > 0 || r.forecastShift > 0);
+    nextScan = top ? { assetId: top.assetId, point: top.point, reason: `Highest expected value of the reading (${ev.digestId}): it discriminates ${top.informs}${top.evsi > 0 ? '; one outcome changes the best response' : '; no outcome changes the best response, but it moves the forecast most'}.` } : null;
+    const ens = ev.round0!;
+    const k = bestResponseIndex(ens);
+    const none = ens.summaries[0], w = k > 0 ? ens.summaries[k] : null;
+    nextAction = w && w.expectedUtility > none.expectedUtility
+      ? `By expected outcome the engine favours "${w.label}" (${ev.digestId}): P(critical service down) ${fp(w.pServiceDown)} against ${fp(none.pServiceDown)} with no response. A person decides and performs any equipment action; nothing is executed from here.`
+      : `No response option improves the expected outcome over monitoring (${ev.digestId}); keep the alarm visible and verify before changing equipment.`;
+    nextAction += top ? ` Measure next: ${top.point}.` : ' No portable scan would change the best response (every rig-measurable point has zero expected value).';
+  }
   const rec = call(session, steps, 'recommend', { nextScan, nextAction, hypotheses, summary });
   if (!rec.ok || !session.recommendation) throw new Error(`local planner produced an invalid recommendation: ${rec.summary}`);
   const { recommendation, warnings } = validateRecommendation(session.recommendation, session);
+  const evaluation = evaluationOutput(session);
   return {
+    evaluation,
     provider: 'local_planner',
     model: null,
     steps,

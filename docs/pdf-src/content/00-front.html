@@ -1,0 +1,44 @@
+<div class="cover">
+  <div class="inner">
+    <div class="eyebrow">CenterGuard · HackUTD · Technical brief</div>
+    <h1>How CenterGuard's<br><strong>predictions work</strong>,<br>and why they are science-based</h1>
+    <p class="lede">The physics, published data and statistics behind every number the operator sees, what was validated, and where the model is still an assumption.</p>
+    <div class="rule"></div>
+    <div class="meta"><b>Repository</b> Lookahead (pitch name CenterGuard)<br><b>Engine</b> <span style="font-family: var(--mono)">src/domain/engine/</span> · validation run 2026-11-08<br><b>Readers</b> hackathon judges and the team</div>
+  </div>
+  <div class="band"></div>
+  <div class="claims-title">What this document shows</div>
+  <div class="claims">
+    <div><div class="k">2,048 trials</div><div class="d">per response option in round 0 (256 parameter draws × 8 aleatory draws), each a full physics-and-cascade run.</div></div>
+    <div><div class="k">0 numbers</div><div class="d">produced by Nemotron. It steers which trials run; the engine re-weights every trial and a validator strips unsupported figures.</div></div>
+    <div><div class="k">82 % · 52 %</div><div class="d">p10–p90 coverage against the model's own priors and against widened priors (target 80 %). Hence the label "model range".</div></div>
+  </div>
+</div>
+
+<section class="toc-page">
+  <div class="kicker">Contents</div>
+  <h1>Contents</h1>
+  <div class="toc">
+    <div class="row"><span class="num">1</span><span><span class="ttl">The problem and the claim</span><span class="sub">What an operator needs, what was wrong before, the Uptime Institute statistic</span></span><span class="fill"></span><span class="pg">{{p1}}</span></div>
+    <div class="row"><span class="num">2</span><span><span class="ttl">System overview</span><span class="sub">From sensors and a portable scan to the operator UI</span></span><span class="fill"></span><span class="pg">{{p2}}</span></div>
+    <div class="row"><span class="num">3</span><span><span class="ttl">The models</span><span class="sub">Room energy balance and two clocks · evidence posterior · reliability priors · leak · cascade and ensemble</span></span><span class="fill"></span><span class="pg">{{p3}}</span></div>
+    <div class="row"><span class="num">4</span><span><span class="ttl">How Nemotron is used, and why it cannot bias the numbers</span><span class="sub">Closed grammar, defensive mixture, weight cap, validator · EVSI next scan</span></span><span class="fill"></span><span class="pg">{{p4}}</span></div>
+    <div class="row"><span class="num">5</span><span><span class="ttl">Data pulled</span><span class="sub">Volumes, provenance and what each source was used for</span></span><span class="fill"></span><span class="pg">{{p5}}</span></div>
+    <div class="row"><span class="num">6</span><span><span class="ttl">Validation, reported honestly</span><span class="sub">Thermal backtest · interval coverage · first-rack accuracy · runtimes</span></span><span class="fill"></span><span class="pg">{{p6}}</span></div>
+    <div class="row"><span class="num">7</span><span><span class="ttl">Limitations and assumptions</span><span class="sub">Every parameter without a source, listed</span></span><span class="fill"></span><span class="pg">{{p7}}</span></div>
+    <div class="row"><span class="num">8</span><span><span class="ttl">References</span><span class="sub">With URLs</span></span><span class="fill"></span><span class="pg">{{p8}}</span></div>
+  </div>
+
+  <h2 style="margin-top: 30px">How to read the evidence markers</h2>
+  <p>Each value carries the kind of evidence behind it, using the markers of the project's research dossier (<code>docs/PREDICTION-SCIENCE.md</code>).</p>
+  <div class="reading">
+    <div><span class="tag m">M</span> Measured in a laboratory, a fleet or an incident report.</div>
+    <div><span class="tag s">S</span> Simulated or calculated in the cited source (for example a vendor white paper's model or CFD).</div>
+    <div><span class="tag v">V</span> Vendor claim, not independently verified.</div>
+    <div><span class="tag a">A</span> Our assumption: no source was found, so the range is deliberately wide.</div>
+    <div><span class="tag c">calc</span> Arithmetic done by the team, with the script in <code>research/scripts/</code>.</div>
+  </div>
+
+  <h2 style="margin-top: 26px">Sources of truth for this document</h2>
+  <p class="small">Every figure traces to a file in the repository: the dossier and the implementation log in <code>docs/</code>, <code>docs/ENGINE_CONTRACT.md</code>, the engine code in <code>src/domain/engine/</code> and <code>server/director/</code>, <code>research/SOURCES.md</code>, <code>research/derived/*.json</code>, <code>research/data/published-transients/cooling_outage_points.csv</code> and <code>reports/validation-2026-11-08-*.md</code>. Where the dossier and the implementation disagree, this document describes what was <b>built</b> and lists the dossier's extras as future work. The charts are generated by <code>docs/pdf-src/build.mjs</code>, which reads those files and, for two charts, runs the shipped engine functions (<code>simulateThermal</code>, <code>evidencePosterior</code>) with the parameters used in the project's own tests. Where a quantity was not measured, the text says "not measured".</p>
+</section>
