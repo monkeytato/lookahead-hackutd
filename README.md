@@ -35,6 +35,7 @@ npm run build
 
 With no Arduino plugged in, the bridge runs a **simulated rig** that emits byte-identical frames, labeled SIMULATED everywhere. Plug the rig in and the bridge switches to it within 5 s. To pin a port, set `RACKMON_PORT=COM5`.
 
+- **Phone dashboard:** `#/m` gives a supervisor view on a phone: the response queue with clocks, live rig tiles, director plans with approve/reject, and the team. Open it over LAN the same way as the scanner.
 - **Phone scanner:** run `npm run dev:lan` and open `http://<laptop-ip>:5173/#/scan` on the same Wi-Fi. The bridge itself stays on 127.0.0.1. There is no auth, so keep this on a trusted network.
 - **Nemotron live:** put `NVIDIA_API_KEY=...` in `.env.local` (see `.env.example`). Without it, the deterministic local planner runs the same tool sequence and the UI says so.
 
@@ -46,6 +47,7 @@ Routes:
 | `#/app` | Operations |
 | `#/app/rig` | Rack node |
 | `#/scan` | Scanner |
+| `#/m` | Phone dashboard: queue, rig, director approvals, team |
 | `#/app/tasks` | Tasks |
 | `#/app/team` | Team |
 | `#/app/dependencies` | Dependencies |
@@ -102,7 +104,8 @@ On the fixture at 02:35:
 - The scan comes back **wet**.
 - **Plan 2** moves the next scan to PIPE-L2 and proposes `valve close` (the rig's valve is open) plus a ticket for INC-1045. Both wait for approval.
 
-- **Model:** `nvidia/nemotron-3-super-120b-a12b` via `integrate.api.nvidia.com`, with tool calling. A Nemotron NIM on a Brev GPU also works: set `NVIDIA_BASE_URL`.
+- **Model:** `nvidia/nemotron-3.5-lightning-30b-a3b` via `integrate.api.nvidia.com`, with tool calling (verified live 2026-11-07; see `.env.example` for other ids). A Nemotron NIM on a Brev GPU also works: set `NVIDIA_BASE_URL`.
+- **Finishing the plan:** when two tool turns remain, the director tells the model to wrap up. On the last turn it forces `tool_choice: recommend`, so the plan is Nemotron's own and not the fallback's.
 - **Fallback:** with no key, a timeout or invalid output, the local planner runs the same tools in a fixed order, including the external ones, and the UI labels it.
 - **Safety:** the model never gets raw network or shell access. Each tool is a fixed, validated request, and tool results are treated as data. Nothing that moves hardware or posts outside the system runs without a person's approval.
 
@@ -133,7 +136,7 @@ On the fixture at 02:35:
 | Sensor ↔ app connection | **USB serial, JSON lines at 1 Hz** → bridge → SSE. Firmware in `hardware/` is **not yet compiled or flashed**; tested against the simulated rig only. |
 | Rig scans and rules | Implemented with tests. The live rig is untested until the hardware is flashed. |
 | Verification verdicts | Rules over four explicit states. Evidence comes from Rack Monitor scans, with labeled fixtures as a fallback. |
-| NVIDIA Nemotron director | Tool-calling agent with engine tools, the live NWS weather API, the rig, the scan queue and approval-gated rig commands / GitHub tickets. Re-plans automatically. Nemotron itself is tested against a **mocked** endpoint; a live run needs `NVIDIA_API_KEY`. The external tools and re-plan were verified live via the local planner. |
+| NVIDIA Nemotron director | Tool-calling agent with engine tools, the live NWS weather API, the rig, the scan queue and approval-gated rig commands / GitHub tickets. Re-plans automatically. Tested against a mocked endpoint and **run live** against `integrate.api.nvidia.com` (Nemotron 3.5 Lightning, 2026-11-07). The validator still strips any number no engine run produced. |
 | Persistence | Dashboard: `localStorage` + `BroadcastChannel`. Bridge: scans, requests and events in `server/.data/`. Not production storage or auth. |
 | People positions | Manual or QR check-ins only, with stale positions labeled. No indoor tracking. |
 

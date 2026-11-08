@@ -8,8 +8,8 @@
  */
 
 export const DEFAULT_BASE_URL = 'https://integrate.api.nvidia.com/v1';
-/** Nemotron 3 Super (120B total / 12B active, hybrid Mamba-Transformer MoE; function calling supported). */
-export const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b';
+/** Nemotron 3.5 Lightning (30B / 3B active, function calling). Verified live on integrate.api.nvidia.com 2026-11-07. */
+export const DEFAULT_MODEL = 'nvidia/nemotron-3.5-lightning-30b-a3b';
 export const DEFAULT_TIMEOUT_MS = 15000;
 
 export type ThinkingMode = 'off' | 'on' | 'default';
@@ -85,19 +85,22 @@ export function thinkingPrefix(cfg: NemotronConfig): string {
   return cfg.thinking === 'off' ? '/no_think\n' : '/think\n';
 }
 
+/** 'auto', or force one named function (used on the last turn to force `recommend`). */
+export type ToolChoice = 'auto' | { type: 'function'; function: { name: string } };
+
 let callSeq = 0;
 
 export async function chatCompletion(
   cfg: NemotronConfig,
   messages: ChatMessage[],
   tools: readonly unknown[],
-  opts: { fetchImpl: FetchLike; timeoutMs?: number; withTemplateKwargs?: boolean },
+  opts: { fetchImpl: FetchLike; timeoutMs?: number; withTemplateKwargs?: boolean; toolChoice?: ToolChoice },
 ): Promise<ChatResult> {
   const body: Record<string, unknown> = {
     model: cfg.model,
     messages,
     tools,
-    tool_choice: 'auto',
+    tool_choice: opts.toolChoice ?? 'auto',
     temperature: 0.6,
     top_p: 0.95,
     max_tokens: cfg.thinking === 'on' ? 4096 : 1536,

@@ -56,6 +56,7 @@ export function AppShell({ route }: { route: string }) {
           <span className="tb-sim" title={scenario.basis}>SIMULATED</span>
           <a className={`tb-dev tb-dev-${dev.kind}`} href="#/app/rig" title={dev.text}><i aria-hidden="true" />{dev.kind === 'live' ? 'Rig live' : dev.kind === 'sim' ? 'Rig sim' : 'Rig offline'}{age != null && dev.kind !== 'off' && age > 3 ? <em> {Math.round(age)}s</em> : null}</a>
           <a className="tb-scan" href="#/scan" target="_blank" rel="noopener">Scanner ↗</a>
+          <a className="tb-phone" href="#/m" target="_blank" rel="noopener" title="Phone dashboard — on a phone, run npm run dev:lan and open http://<laptop-ip>:5173/#/m">Phone ↗</a>
           <label className="tb-field">
             <span className="sr-only">Demo persona</span>
             <select value={state.persona} onChange={(e) => dispatch({ type: 'persona', persona: e.target.value as Persona })} title="Demo persona — not authentication">

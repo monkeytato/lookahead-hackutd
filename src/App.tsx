@@ -6,6 +6,7 @@ import { AppShell } from './app/AppShell';
 
 const TwinDemo = lazy(() => import('./twin/TwinDemo').then((m) => ({ default: m.TwinDemo })));
 const ScanApp = lazy(() => import('./scan/ScanApp').then((m) => ({ default: m.ScanApp })));
+const MobileApp = lazy(() => import('./mobile/MobileApp').then((m) => ({ default: m.MobileApp })));
 
 function useHash() {
   const [hash, setHash] = useState(() => window.location.hash || '#/');
@@ -24,6 +25,15 @@ export default function App() {
       <BridgeProvider>
         <OpsProvider>
           <AppShell route={hash.slice('#/app'.length).split('?')[0].replace(/^\//, '')} />
+        </OpsProvider>
+      </BridgeProvider>
+    );
+  }
+  if (hash === '#/m' || hash.startsWith('#/m/') || hash.startsWith('#/m?')) {
+    return (
+      <BridgeProvider>
+        <OpsProvider>
+          <Suspense fallback={null}><MobileApp route={hash.slice('#/m'.length).split('?')[0].replace(/^\//, '')} /></Suspense>
         </OpsProvider>
       </BridgeProvider>
     );

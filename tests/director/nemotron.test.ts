@@ -109,6 +109,34 @@ describe('Nemotron failures fall back to the local planner', () => {
     expect(r.fallbackReason).toMatch(/step cap/);
   });
 
+  it('tells the model when turns run low and forces recommend on the last turn', async () => {
+    const { fetchImpl, requests } = scriptedFetch([
+      { toolCalls: [{ name: 'get_situation', arguments: '{}' }] },
+      { toolCalls: [{ name: 'scan_value', arguments: JSON.stringify({ assetId: 'BATT-B', metric: 'leak' }) }] },
+      { toolCalls: [{ name: 'compare_runs', arguments: JSON.stringify({ a: 'run-2', b: 'run-3' }) }] },
+      { toolCalls: [{ name: 'recommend', arguments: recommendArgs('Scan BATT-B first (run-2 vs run-3).') }] },
+    ]);
+    const r = await runDirector(leakInput(), { env: KEY_ENV, fetchImpl, maxTurns: 4 });
+    expect(r.provider).toBe('nemotron');
+    const choice = (i: number) => (requests[i].body as unknown as { tool_choice: unknown }).tool_choice;
+    expect(choice(0)).toBe('auto');
+    expect(choice(2)).toBe('auto');
+    expect(choice(3)).toEqual({ type: 'function', function: { name: 'recommend' } });
+    const nudges = requests[3].body.messages.filter((m) => m.role === 'user' && /tool turns? left/.test(m.content ?? ''));
+    expect(nudges).toHaveLength(1);
+  });
+
+  it('retries the last turn with tool_choice auto when the host rejects a named tool_choice', async () => {
+    const { fetchImpl, requests } = scriptedFetch([
+      { toolCalls: [{ name: 'scan_value', arguments: JSON.stringify({ assetId: 'BATT-B', metric: 'leak' }) }] },
+      { status: 400, body: '{"detail":"tool_choice must be auto"}' },
+      { toolCalls: [{ name: 'recommend', arguments: recommendArgs('Scan BATT-B first (run-2 vs run-3).') }] },
+    ]);
+    const r = await runDirector(leakInput(), { env: KEY_ENV, fetchImpl, maxTurns: 2 });
+    expect(r.provider).toBe('nemotron');
+    expect((requests[2].body as unknown as { tool_choice: unknown }).tool_choice).toBe('auto');
+  });
+
   it('plain text twice (no tool calls) → local planner', async () => {
     const { fetchImpl } = scriptedFetch([{ content: 'I think you should scan BATT-B in 4 minutes.' }]);
     const r = await runDirector(leakInput(), { env: KEY_ENV, fetchImpl });

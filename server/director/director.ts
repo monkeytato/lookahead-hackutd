@@ -10,7 +10,7 @@
  * Falls back to the deterministic local planner (same tools) on: no API key, timeout, HTTP /
  * network error, malformed responses, repeated invalid tool JSON, no recommend, or step cap.
  */
-import type { ChatMessage, Env, FetchLike, NemotronConfig } from './nemotron';
+import type { ChatMessage, Env, FetchLike, NemotronConfig, ToolChoice } from './nemotron';
 import { NemotronError, chatCompletion, nemotronConfigFromEnv, thinkingPrefix } from './nemotron';
 import { runLocalPlanner } from './planner';
 import { MAX_RUNS_PER_SESSION, TOOL_DEFS, createSession, dispatchTool } from './tools';
@@ -19,7 +19,9 @@ import type { ScanRequest } from '../../src/domain/rig/protocol';
 import { EXTERNAL_TOOL_DEFS, dispatchExternal, type ExternalServices } from './external';
 import { validateRecommendation } from './validate';
 
-export const MAX_TOOL_TURNS = 8;
+export const MAX_TOOL_TURNS = 12;
+/** When this many turns remain the director is told to wrap up; on the last turn `recommend` is forced. */
+export const WRAP_UP_TURNS = 2;
 const MAX_INVALID_JSON = 2;
 
 export interface DirectorOptions {
@@ -128,17 +130,34 @@ async function agentLoop(
   let invalidJson = 0;
   let nudged = false;
   let templateKwargs = true;
+  let forceRecommend = true; // cleared if the host rejects a named tool_choice
+  let warned = false;
 
   for (let turn = 0; turn < maxTurns; turn++) {
     const left = cfg.budgetMs - (Date.now() - started);
     if (left <= 0) throw new Fallback(`time budget of ${cfg.budgetMs} ms exhausted after ${turn} turns`);
+    const turnsLeft = maxTurns - turn;
+    // Hosted Nemotron models tend to make one call per turn and keep comparing runs. Say how much
+    // room is left, and on the last turn require `recommend`, so the plan is the model's own.
+    if (turn > 0 && turnsLeft <= WRAP_UP_TURNS && !warned) {
+      warned = true;
+      messages.push({ role: 'user', content: `${turnsLeft} tool turn${turnsLeft === 1 ? '' : 's'} left. Stop exploring and call recommend now, citing the run ids you already have.` });
+    }
+    const toolChoice: ToolChoice = turn > 0 && turnsLeft === 1 && forceRecommend ? { type: 'function', function: { name: 'recommend' } } : 'auto';
     let res;
     try {
-      res = await chatCompletion(cfg, messages, tools, { fetchImpl, timeoutMs: Math.min(cfg.timeoutMs, left), withTemplateKwargs: templateKwargs });
+      res = await chatCompletion(cfg, messages, tools, { fetchImpl, timeoutMs: Math.min(cfg.timeoutMs, left), withTemplateKwargs: templateKwargs, toolChoice });
     } catch (e) {
+      const rejected = e instanceof NemotronError && e.kind === 'http' && (e.status === 400 || e.status === 422);
       // Some hosted deployments reject chat_template_kwargs: retry this turn once without it.
-      if (e instanceof NemotronError && e.kind === 'http' && (e.status === 400 || e.status === 422) && templateKwargs && /chat_template|kwargs|extra/i.test(e.message)) {
+      if (rejected && templateKwargs && /chat_template|kwargs|extra/i.test((e as Error).message)) {
         templateKwargs = false;
+        turn--;
+        continue;
+      }
+      // …or a named tool_choice: retry this turn with 'auto'.
+      if (rejected && toolChoice !== 'auto') {
+        forceRecommend = false;
         turn--;
         continue;
       }

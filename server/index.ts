@@ -28,6 +28,7 @@ import { diagnose, followUp } from '../src/domain/rig/diagnose';
 import { createAgentHub } from './agentHub';
 import type { PendingAction } from './director/types';
 import { loadEnv } from './env';
+import { DEFAULT_MODEL } from './director/nemotron';
 
 loadEnv();
 const PORT = Number(process.env.BRIDGE_PORT ?? 8787);
@@ -78,7 +79,7 @@ function status(): BridgeStatus {
     device: { ...device, framesReceived },
     nemotron: {
       configured: !!process.env.NVIDIA_API_KEY,
-      model: process.env.NEMOTRON_MODEL || 'nvidia/nemotron-3-super-120b-a12b',
+      model: process.env.NEMOTRON_MODEL || DEFAULT_MODEL,
       baseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
     },
     scanning: active ? { id: active.id, assetId: active.assetId, startedAt: active.startedAt } : null,
